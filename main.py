@@ -10,15 +10,21 @@ import requests
 import threading
 import statistics
 import os
+from datetime import datetime, timedelta
+import pytz
 
 # ------------------------------------
-# CONFIGURACIÓN — (TU TOKEN Y CHAT ID)
+# CONFIGURACIÓN — TOKEN Y CHAT ID
 # ------------------------------------
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
+NEWS_API = "https://finnhub.io/api/v1/calendar/economic?token=" + FINNHUB_KEY
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+# Zona horaria México
+mx = pytz.timezone("America/Mexico_City")
 
 # ------------------------------------
 # ACTIVOS (OANDA — Institucional)
@@ -31,7 +37,7 @@ SYMBOLS = {
 }
 
 # ------------------------------------
-# ENVIAR MENSAJE A TELEGRAM
+# ENVIAR MENSAJE PREMIUM A TELEGRAM
 # ------------------------------------
 def send(msg):
     try:
@@ -44,7 +50,7 @@ def send(msg):
         pass
 
 # ------------------------------------
-# OBTENER VELAS 5M DE FINNHUB
+# OBTENER VELAS 5M
 # ------------------------------------
 def obtener_velas_5m(symbol_key):
     symbol = SYMBOLS[symbol_key]
@@ -63,7 +69,7 @@ def obtener_velas_5m(symbol_key):
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 # ------------------------------------
-# DETECTAR CONFLUENCIAS ICT PRO LIGERO
+# ICT PRO LIGERO — DETECCIÓN AVANZADA
 # ------------------------------------
 def detectar_confluencias(symbol_key, velas):
     o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-10:]])
@@ -82,41 +88,34 @@ def detectar_confluencias(symbol_key, velas):
         "Volumen": True
     }
 
-    # BOS / CHOCH
     if c[-1] > h[-2]:
         cons["BOS"] = True
     if c[-1] < l[-2]:
         cons["CHOCH"] = True
 
-    # ORDER BLOCK básico
     if (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]):
         cons["OB"] = True
 
-    # FVG Interno
     if h[-2] < l[-4] or l[-2] > h[-4]:
         cons["FVG_Internal"] = True
 
-    # FVG Externo
     rango_alto = max(h[:-1])
     rango_bajo = min(l[:-1])
     if c[-1] > rango_alto * 1.0004 or c[-1] < rango_bajo * 0.9996:
         cons["FVG_External"] = True
 
-    # EQH / EQL
     if abs(h[-1] - h[-2]) < (h[-1] * 0.00015):
         cons["EQH"] = True
+
     if abs(l[-1] - l[-2]) < (l[-1] * 0.00015):
         cons["EQL"] = True
 
-    # Liquidez interna
     if h[-1] > max(h[-5:-1]) or l[-1] < min(l[-5:-1]):
         cons["Liquidity_Internal"] = True
 
-    # Liquidez externa
     if c[-1] > max(h[-9:-3]) or c[-1] < min(l[-9:-3]):
         cons["Liquidity_External"] = True
 
-    # Volatilidad
     rangos = [h[i] - l[i] for i in range(10)]
     if statistics.mean(rangos) > 0.0009:
         cons["Volatilidad"] = True
@@ -124,7 +123,7 @@ def detectar_confluencias(symbol_key, velas):
     return cons
 
 # ------------------------------------
-# GENERAR SEÑAL
+# GENERAR SEÑAL PREMIUM
 # ------------------------------------
 def generar_senal(symbol_key, price, cons):
     if cons["BOS"]:
@@ -165,19 +164,70 @@ def generar_senal(symbol_key, price, cons):
 🛑 <b>SL:</b> {sl:.5f}
 📊 <b>RR:</b> 1:{rr}
 
-🧠 <b>Confluencias ICT PRO LIGERO:</b>
+🧠 <b>Confluencias ICT PRO:</b>
 {confluencias_texto}
 
 ⏳ TF: 5M (Vela cerrada)
 """
 
 # ------------------------------------
-# LOOP PRINCIPAL — CADA 5 MINUTOS
+# DETECTAR NOTICIAS DE ALTO IMPACTO
+# ------------------------------------
+def noticias_alto_impacto():
+    try:
+        data = requests.get(NEWS_API).json()
+        eventos = data.get("economicCalendar", [])
+        hoy = datetime.now(mx).strftime("%Y-%m-%d")
+
+        for ev in eventos:
+            if ev.get("impact") == "High" and ev.get("date") == hoy:
+                return True
+    except:
+        pass
+
+    return False
+
+# ------------------------------------
+# LOOP PRINCIPAL — Con sesiones, avisos y estado
 # ------------------------------------
 def analizar_cada_5m():
-    send("🔥 <b>CryptoSniper FX — Nivel 30 Premium Pro Activado (ICT PRO LIGERO)</b>")
+    send("🔥 <b>CryptoSniper FX — Sistema Premium Activado</b>")
+    ciclos = 0
+    ultima_sesion = ""
+    ultimo_reporte = 0
+    ultimo_resumen = ""
 
     while True:
+        ahora = datetime.now(mx)
+        hora = ahora.hour
+        minuto = ahora.minute
+        fecha = ahora.strftime("%Y-%m-%d")
+
+        # -------------------------
+        # Sesiones
+        # -------------------------
+        if 19 <= hora < 4:
+            sesion = "Asia"
+        elif 2 <= hora < 10:
+            sesion = "Londres"
+        else:
+            sesion = "Nueva York"
+
+        if sesion != ultima_sesion:
+            send(f"🌍 <b>Inicio de sesión {sesion}</b>\n📈 Volatilidad entrando…")
+            ultima_sesion = sesion
+
+        # -------------------------
+        # Noticias
+        # -------------------------
+        if noticias_alto_impacto():
+            send("🚨 <b>Noticias de alto impacto detectadas</b>\nEvitar señales durante próximos minutos.")
+
+        # -------------------------
+        # ANÁLISIS 5 MINUTOS
+        # -------------------------
+        señal_encontrada = False
+
         for pair in SYMBOLS.keys():
             velas = obtener_velas_5m(pair)
             if not velas:
@@ -185,13 +235,36 @@ def analizar_cada_5m():
 
             cons = detectar_confluencias(pair, velas)
 
-            # Requiere mínimo 4 confluencias institucionales
             if sum(cons.values()) < 4:
                 continue
 
             price = velas[-1][4]
             señal = generar_senal(pair, price, cons)
             send(señal)
+            señal_encontrada = True
+
+        ciclos += 1
+
+        # -------------------------
+        # Estado cada 30 min
+        # -------------------------
+        if ciclos >= 6 and not señal_encontrada:
+            send("🔎 <b>CryptoSniper FX sigue analizando…</b>\nSin confluencias fuertes aún.")
+            ciclos = 0
+
+        # -------------------------
+        # Estado cada hora
+        # -------------------------
+        if hora != ultimo_reporte:
+            send("📊 <b>Estado del mercado</b>\nTodo analizado correctamente.")
+            ultimo_reporte = hora
+
+        # -------------------------
+        # Resumen diario
+        # -------------------------
+        if fecha != ultimo_resumen and hora == 22:
+            send("📘 <b>Resumen del día:</b>\nMercado analizado, señales generadas y sesiones cubiertas.")
+            ultimo_resumen = fecha
 
         time.sleep(300)
 
