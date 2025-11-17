@@ -63,37 +63,62 @@ def obtener_velas_5m(symbol_key):
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 # ------------------------------------
-# DETECTAR CONFLUENCIAS INSTITUCIONALES
+# DETECTAR CONFLUENCIAS ICT PRO LIGERO
 # ------------------------------------
 def detectar_confluencias(symbol_key, velas):
-    o,h,l,c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-5:]])
+    o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-10:]])
 
     cons = {
         "BOS": False,
         "CHOCH": False,
         "OB": False,
-        "FVG": False,
-        "Liquidez": False,
-        "Volumen": True,
-        "Volatilidad": False
+        "FVG_Internal": False,
+        "FVG_External": False,
+        "EQH": False,
+        "EQL": False,
+        "Liquidity_Internal": False,
+        "Liquidity_External": False,
+        "Volatilidad": False,
+        "Volumen": True
     }
 
+    # BOS / CHOCH
     if c[-1] > h[-2]:
         cons["BOS"] = True
     if c[-1] < l[-2]:
         cons["CHOCH"] = True
 
+    # ORDER BLOCK básico
     if (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]):
         cons["OB"] = True
 
+    # FVG Interno
     if h[-2] < l[-4] or l[-2] > h[-4]:
-        cons["FVG"] = True
+        cons["FVG_Internal"] = True
 
-    if h[-1] > max(h[:-1]) or l[-1] < min(l[:-1]):
-        cons["Liquidez"] = True
+    # FVG Externo
+    rango_alto = max(h[:-1])
+    rango_bajo = min(l[:-1])
+    if c[-1] > rango_alto * 1.0004 or c[-1] < rango_bajo * 0.9996:
+        cons["FVG_External"] = True
 
-    rng = [h[i] - l[i] for i in range(5)]
-    if statistics.mean(rng) > 0.0008:
+    # EQH / EQL
+    if abs(h[-1] - h[-2]) < (h[-1] * 0.00015):
+        cons["EQH"] = True
+    if abs(l[-1] - l[-2]) < (l[-1] * 0.00015):
+        cons["EQL"] = True
+
+    # Liquidez interna
+    if h[-1] > max(h[-5:-1]) or l[-1] < min(l[-5:-1]):
+        cons["Liquidity_Internal"] = True
+
+    # Liquidez externa
+    if c[-1] > max(h[-9:-3]) or c[-1] < min(l[-9:-3]):
+        cons["Liquidity_External"] = True
+
+    # Volatilidad
+    rangos = [h[i] - l[i] for i in range(10)]
+    if statistics.mean(rangos) > 0.0009:
         cons["Volatilidad"] = True
 
     return cons
@@ -114,17 +139,17 @@ def generar_senal(symbol_key, price, cons):
     if direction == "BUY":
         sl = price - dist
         tp1 = price + dist
-        tp2 = price + dist*2
-        tp3 = price + dist*3
+        tp2 = price + dist * 2
+        tp3 = price + dist * 3
     else:
         sl = price + dist
         tp1 = price - dist
-        tp2 = price - dist*2
-        tp3 = price - dist*3
+        tp2 = price - dist * 2
+        tp3 = price - dist * 3
 
     rr = round((tp1 - price) / abs(price - sl), 2)
 
-    confluencias_texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
+    confluencias_texto = "\n".join([f"✔ {k}" for k, v in cons.items() if v])
 
     return f"""
 🔥✨ <b>CryptoSniper FX — Señal Institucional</b>
@@ -140,17 +165,17 @@ def generar_senal(symbol_key, price, cons):
 🛑 <b>SL:</b> {sl:.5f}
 📊 <b>RR:</b> 1:{rr}
 
-🧠 <b>Confluencias:</b>
+🧠 <b>Confluencias ICT PRO LIGERO:</b>
 {confluencias_texto}
 
 ⏳ TF: 5M (Vela cerrada)
 """
 
 # ------------------------------------
-# LOOP PRINCIPAL EN HILO
+# LOOP PRINCIPAL — CADA 5 MINUTOS
 # ------------------------------------
 def analizar_cada_5m():
-    send("🔥 <b>CryptoSniper FX — Nivel 30 Premium Pro Activado</b>")
+    send("🔥 <b>CryptoSniper FX — Nivel 30 Premium Pro Activado (ICT PRO LIGERO)</b>")
 
     while True:
         for pair in SYMBOLS.keys():
@@ -159,6 +184,8 @@ def analizar_cada_5m():
                 continue
 
             cons = detectar_confluencias(pair, velas)
+
+            # Requiere mínimo 4 confluencias institucionales
             if sum(cons.values()) < 4:
                 continue
 
