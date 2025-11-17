@@ -12,6 +12,7 @@ import statistics
 import os
 from datetime import datetime, timedelta
 import pytz
+from flask import Flask, request
 
 # ------------------------------------
 # CONFIGURACIÓN — TOKEN Y CHAT ID
@@ -27,7 +28,43 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ------------------------------------
-# ACTIVOS (OANDA — Institucional)
+# SERVIDOR FLASK PARA TRADINGVIEW
+# ------------------------------------
+app = Flask(__name__)
+
+# Aquí guardamos la última señal que envió TradingView
+tradingview_signal = {
+    "indicator": None,
+    "signal": None,
+    "timestamp": 0
+}
+
+# Endpoint donde TradingView enviará webhooks
+@app.route('/tv', methods=['POST'])
+def webhook_tv():
+    global tradingview_signal
+    data = request.json
+
+    try:
+        indicator = data.get("indicator")
+        signal = data.get("signal")
+
+        if indicator and signal:
+            tradingview_signal = {
+                "indicator": indicator,
+                "signal": signal,
+                "timestamp": time.time()
+            }
+
+            return "OK", 200
+    except:
+        pass
+
+    return "FAILED", 400
+
+
+# ------------------------------------
+# ACTIVOS OANDA
 # ------------------------------------
 SYMBOLS = {
     "XAU/USD": "OANDA:XAU_USD",
@@ -37,7 +74,7 @@ SYMBOLS = {
 }
 
 # ------------------------------------
-# ENVIAR MENSAJE PREMIUM A TELEGRAM
+# ENVIAR MENSAJE PREMIUM
 # ------------------------------------
 def send(msg):
     try:
@@ -48,6 +85,7 @@ def send(msg):
         })
     except:
         pass
+
 
 # ------------------------------------
 # OBTENER VELAS 5M
@@ -68,8 +106,9 @@ def obtener_velas_5m(symbol_key):
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
+
 # ------------------------------------
-# ICT PRO LIGERO — DETECCIÓN AVANZADA
+# ICT PRO LIGERO
 # ------------------------------------
 def detectar_confluencias(symbol_key, velas):
     o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-10:]])
@@ -122,8 +161,9 @@ def detectar_confluencias(symbol_key, velas):
 
     return cons
 
+
 # ------------------------------------
-# GENERAR SEÑAL PREMIUM
+# SEÑAL FINAL
 # ------------------------------------
 def generar_senal(symbol_key, price, cons):
     if cons["BOS"]:
@@ -151,11 +191,13 @@ def generar_senal(symbol_key, price, cons):
     confluencias_texto = "\n".join([f"✔ {k}" for k, v in cons.items() if v])
 
     return f"""
-🔥✨ <b>CryptoSniper FX — Señal Institucional</b>
+🔥✨ <b>CryptoSniper FX — Señal Confirmada</b>
 
 📌 <b>Activo:</b> {symbol_key}
 📈 <b>Tipo:</b> {direction}
 💵 <b>Precio:</b> {price}
+
+⭐ <b>Confirmación TradingView:</b> SuperTrend {tradingview_signal["signal"]}
 
 🎯 <b>TP1:</b> {tp1:.5f}
 🎯 <b>TP2:</b> {tp2:.5f}
@@ -167,66 +209,18 @@ def generar_senal(symbol_key, price, cons):
 🧠 <b>Confluencias ICT PRO:</b>
 {confluencias_texto}
 
-⏳ TF: 5M (Vela cerrada)
+⏳ TF: 5M + TradingView Confirmación
 """
 
-# ------------------------------------
-# DETECTAR NOTICIAS DE ALTO IMPACTO
-# ------------------------------------
-def noticias_alto_impacto():
-    try:
-        data = requests.get(NEWS_API).json()
-        eventos = data.get("economicCalendar", [])
-        hoy = datetime.now(mx).strftime("%Y-%m-%d")
-
-        for ev in eventos:
-            if ev.get("impact") == "High" and ev.get("date") == hoy:
-                return True
-    except:
-        pass
-
-    return False
 
 # ------------------------------------
-# LOOP PRINCIPAL — Con sesiones, avisos y estado
+# LOOP PRINCIPAL CON DOBLE CONFIRMACIÓN
 # ------------------------------------
 def analizar_cada_5m():
-    send("🔥 <b>CryptoSniper FX — Sistema Premium Activado</b>")
-    ciclos = 0
-    ultima_sesion = ""
-    ultimo_reporte = 0
-    ultimo_resumen = ""
+    send("🔥 <b>CryptoSniper FX — Double Confirmation TradingView + ICT PRO ACTIVADO</b>")
 
     while True:
         ahora = datetime.now(mx)
-        hora = ahora.hour
-        minuto = ahora.minute
-        fecha = ahora.strftime("%Y-%m-%d")
-
-        # -------------------------
-        # Sesiones
-        # -------------------------
-        if 19 <= hora < 4:
-            sesion = "Asia"
-        elif 2 <= hora < 10:
-            sesion = "Londres"
-        else:
-            sesion = "Nueva York"
-
-        if sesion != ultima_sesion:
-            send(f"🌍 <b>Inicio de sesión {sesion}</b>\n📈 Volatilidad entrando…")
-            ultima_sesion = sesion
-
-        # -------------------------
-        # Noticias
-        # -------------------------
-        if noticias_alto_impacto():
-            send("🚨 <b>Noticias de alto impacto detectadas</b>\nEvitar señales durante próximos minutos.")
-
-        # -------------------------
-        # ANÁLISIS 5 MINUTOS
-        # -------------------------
-        señal_encontrada = False
 
         for pair in SYMBOLS.keys():
             velas = obtener_velas_5m(pair)
@@ -235,40 +229,32 @@ def analizar_cada_5m():
 
             cons = detectar_confluencias(pair, velas)
 
+            # Mínimo 4 confluencias ICT
             if sum(cons.values()) < 4:
+                continue
+
+            # TradingView debe haber mandado webhook en últimos 10 min
+            if time.time() - tradingview_signal["timestamp"] > 600:
+                continue
+
+            # Señal debe coincidir con el análisis ICT
+            tv_dir = tradingview_signal["signal"]
+
+            # Predecir dirección ICT
+            ict_dir = "BUY" if cons["BOS"] else "SELL" if cons["CHOCH"] else None
+
+            if ict_dir != tv_dir:
                 continue
 
             price = velas[-1][4]
             señal = generar_senal(pair, price, cons)
             send(señal)
-            señal_encontrada = True
-
-        ciclos += 1
-
-        # -------------------------
-        # Estado cada 30 min
-        # -------------------------
-        if ciclos >= 6 and not señal_encontrada:
-            send("🔎 <b>CryptoSniper FX sigue analizando…</b>\nSin confluencias fuertes aún.")
-            ciclos = 0
-
-        # -------------------------
-        # Estado cada hora
-        # -------------------------
-        if hora != ultimo_reporte:
-            send("📊 <b>Estado del mercado</b>\nTodo analizado correctamente.")
-            ultimo_reporte = hora
-
-        # -------------------------
-        # Resumen diario
-        # -------------------------
-        if fecha != ultimo_resumen and hora == 22:
-            send("📘 <b>Resumen del día:</b>\nMercado analizado, señales generadas y sesiones cubiertas.")
-            ultimo_resumen = fecha
 
         time.sleep(300)
 
 # ------------------------------------
-# INICIAR SISTEMA
+# INICIAR SERVIDOR Y ANALIZADOR
 # ------------------------------------
-threading.Thread(target=analizar_cada_5m).start()
+if __name__ == "__main__":
+    threading.Thread(target=analizar_cada_5m).start()
+    app.run(host="0.0.0.0", port=8080)
