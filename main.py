@@ -184,24 +184,25 @@ def noticias_alto_impacto():
                 return True
     except:
         pass
-
     return False
 
 # ------------------------------------
-# LOOP PRINCIPAL — Con sesiones, avisos y estado
+# LOOP PRINCIPAL — SEÑALES + PRE-ALERTAS
 # ------------------------------------
 def analizar_cada_5m():
     send("🔥 <b>CryptoSniper FX — Sistema Premium Activado</b>")
+    
     ciclos = 0
     ultima_sesion = ""
     ultimo_reporte = 0
     ultimo_resumen = ""
+    ultima_prealerta_por_par = {pair: 0 for pair in SYMBOLS.keys()}
 
     while True:
         ahora = datetime.now(mx)
         hora = ahora.hour
-        minuto = ahora.minute
         fecha = ahora.strftime("%Y-%m-%d")
+        timestamp_actual = int(time.time())
 
         # -------------------------
         # Sesiones
@@ -229,25 +230,37 @@ def analizar_cada_5m():
         señal_encontrada = False
 
         for pair in SYMBOLS.keys():
+
             velas = obtener_velas_5m(pair)
             if not velas:
                 continue
 
             cons = detectar_confluencias(pair, velas)
+            total = sum(cons.values())
 
-            if sum(cons.values()) < 4:
-                continue
+            # PRE-ALERTA (exactamente 3 confluencias)
+            if total == 3:
+                if timestamp_actual - ultima_prealerta_por_par[pair] > 240:
+                    send(
+                        f"⚠️ <b>Posible Setup en Formación</b>\n\n"
+                        f"📌 Activo: {pair}\n"
+                        f"🧩 Confluencias detectadas: 3\n"
+                        f"🔍 A punto de cumplirse estructura ICT.\n"
+                        f"⏳ Monitoreando para entrada institucional…"
+                    )
+                    ultima_prealerta_por_par[pair] = timestamp_actual
 
-            price = velas[-1][4]
-            señal = generar_senal(pair, price, cons)
-            send(señal)
-            señal_encontrada = True
-
-        ciclos += 1
+            # SEÑAL PRINCIPAL (4+ confluencias)
+            if total >= 4:
+                price = velas[-1][4]
+                señal = generar_senal(pair, price, cons)
+                send(señal)
+                señal_encontrada = True
 
         # -------------------------
         # Estado cada 30 min
         # -------------------------
+        ciclos += 1
         if ciclos >= 6 and not señal_encontrada:
             send("🔎 <b>CryptoSniper FX sigue analizando…</b>\nSin confluencias fuertes aún.")
             ciclos = 0
