@@ -1,12 +1,16 @@
 class RiskManager:
-    def __init__(self):
-        self.max_open_trades = 2
-        self.default_lot = 0.35  # Riesgo bajo
-        self.stop_loss_pips = 20
-        self.take_profit_pips = 30
 
-    def get_lot(self):
-        return self.default_lot
+    def __init__(self, balance=100, risk_pct=1.0, max_trades=3):
+        self.balance = balance
+        self.risk_pct = risk_pct
+        self.max_trades = max_trades
+        self.active_trades = 0
 
-    def can_open_trade(self, open_positions):
-        return open_positions < self.max_open_trades
+    def calcular_lote(self):
+        return round(self.balance * (self.risk_pct / 100), 2)
+
+    def permitir_operacion(self):
+        return self.active_trades < self.max_trades
+
+    def abrir_trade(self):
+        self.active_trades += 1
