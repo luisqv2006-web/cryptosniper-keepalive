@@ -1,16 +1,34 @@
+from deriv_api import DerivAPI
 from risk_manager import RiskManager
 
+MAP_SYMBOLS = {
+    "XAU/USD": "frxXAUUSD",
+    "EUR/USD": "frxEURUSD",
+    "GBP/USD": "frxGBPUSD",
+    "USD/JPY": "frxUSDJPY"
+}
+
 class AutoCopy:
-    def __init__(self, api):
-        self.api = api
+
+    def __init__(self, token):
+        self.api = DerivAPI(token)
         self.risk = RiskManager()
 
-    def execute_trade(self, direction, symbol):
-        lot = self.risk.get_lot()
+    def ejecutar(self, pair, direction):
+        if pair not in MAP_SYMBOLS:
+            return
 
-        if direction == "BUY":
-            return self.api.buy(symbol, lot)
-        elif direction == "SELL":
-            return self.api.sell(symbol, lot)
+        symbol = MAP_SYMBOLS[pair]
+        lote = self.risk.calcular_lote()
 
-        return None
+        if not self.risk.permitir_operacion():
+            return
+
+        self.api.buy(
+            symbol=symbol,
+            direction=direction,
+            amount=lote,
+            duration=5
+        )
+
+        self.risk.abrir_trade()
