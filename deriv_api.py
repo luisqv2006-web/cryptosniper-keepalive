@@ -1,52 +1,61 @@
-import json
 import websocket
+import json
+import threading
+import time
+
+DERIV_APP_ID = "1089"
 
 class DerivAPI:
+
     def __init__(self, token):
         self.token = token
+        self.connected = False
         self.ws = None
+        self._connect()
 
-    def connect(self):
-        self.ws = websocket.create_connection("wss://ws.binaryws.com/websockets/v3?app_id=1089")
-        self.authorize()
+    def _connect(self):
+        self.ws = websocket.WebSocketApp(
+            f"wss://ws.binaryws.com/websockets/v3?app_id={DERIV_APP_ID}",
+            on_open=self._on_open,
+            on_message=self._on_message,
+            on_close=self._on_close,
+            on_error=self._on_error
+        )
+        threading.Thread(target=self.ws.run_forever).start()
+        time.sleep(1)
 
-    def authorize(self):
-        auth = {"authorize": self.token}
-        self.ws.send(json.dumps(auth))
-        return json.loads(self.ws.recv())
+    def _on_open(self, ws):
+        self.connected = True
+        self.send({"authorize": self.token})
+
+    def _on_message(self, ws, msg):
+        pass
+
+    def _on_close(self, ws):
+        self.connected = False
+        time.sleep(1)
+        self._connect()
+
+    def _on_error(self, ws, error):
+        print("Error:", error)
 
     def send(self, data):
-        self.ws.send(json.dumps(data))
-        return json.loads(self.ws.recv())
+        if self.connected:
+            self.ws.send(json.dumps(data))
 
-    def buy(self, symbol, amount, duration=5):
-        contract = {
+    def buy(self, symbol, direction, amount, duration=5):
+        contract = "CALL" if direction == "BUY" else "PUT"
+
+        self.send({
             "buy": 1,
             "price": amount,
             "parameters": {
                 "amount": amount,
                 "basis": "stake",
-                "contract_type": "CALL",
-                "currency": "USD",
+                "contract_type": contract,
+                "symbol": symbol,
                 "duration": duration,
                 "duration_unit": "m",
-                "symbol": symbol
+                "currency": "USD"
             }
-        }
-        return self.send(contract)
-
-    def sell(self, symbol, amount, duration=5):
-        contract = {
-            "buy": 1,
-            "price": amount,
-            "parameters": {
-                "amount": amount,
-                "basis": "stake",
-                "contract_type": "PUT",
-                "currency": "USD",
-                "duration": duration,
-                "duration_unit": "m",
-                "symbol": symbol
-            }
-        }
-        return self.send(contract)
+        })
