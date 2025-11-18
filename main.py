@@ -19,7 +19,7 @@ from auto_copy import AutoCopy
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
 
-# ✔️ TOKEN DERIV NUEVO
+# ⚠️ TU TOKEN ACTUAL DE DERIV
 DERIV_TOKEN = "F2l44vScQP6FXKo"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
@@ -30,7 +30,7 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ------------------------------------
-# ACTIVOS (Deriv Symbols)
+# ACTIVOS (Deriv Symbols Reales)
 # ------------------------------------
 SYMBOLS = {
     "XAU/USD": "frxXAUUSD",
@@ -114,8 +114,8 @@ def detectar_confluencias(velas):
     if h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]): cons["Liquidity_Internal"] = True
     if c[-1] > max(h[-11:-3]) or c[-1] < min(l[-11:-3]): cons["Liquidity_External"] = True
 
-    rng = [h[i] - l[i] for i in range(12)]
-    if statistics.mean(rng) > 0.0009:
+    rangos = [h[i] - l[i] for i in range(12)]
+    if statistics.mean(rangos) > 0.0009:
         cons["Volatilidad"] = True
 
     if c[-1] > c[-5] or c[-1] < c[-5]:
@@ -125,20 +125,18 @@ def detectar_confluencias(velas):
 
 
 # ------------------------------------
-# FILTRO ANTI-NOTICIAS
+# NOTICIAS
 # ------------------------------------
 def noticias_alto_impacto():
     try:
         data = requests.get(NEWS_API).json()
         eventos = data.get("economicCalendar", [])
         hoy = datetime.now(mx).strftime("%Y-%m-%d")
-
         for ev in eventos:
             if ev.get("impact") == "High" and ev.get("date") == hoy:
                 return True
     except:
         return False
-
     return False
 
 
@@ -208,7 +206,7 @@ def analizar():
             continue
 
         if noticias_alto_impacto():
-            send("🚨 <b>Noticias High Impact detectadas — Operaciones pausadas</b>")
+            send("🚨 <b>Noticias High Impact — Operaciones pausadas</b>")
             time.sleep(300)
             continue
 
@@ -220,9 +218,31 @@ def analizar():
 
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
+            price = velas[-1][4]
 
+            # -----------------------------------------
+            # 🔥 PRE-ALERTAS — 3 y 4 confluencias
+            # -----------------------------------------
+            if 3 <= total < 5:
+                texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
+
+                send(f"""
+⚡ <b>PRE-ALERTA ICT ({total} confluencias)</b>
+
+📌 Activo: {pair}
+💵 Precio: {price}
+
+🧠 Señales:
+{texto}
+
+⏳ Aún NO es entrada, pero el mercado se está cargando…
+""")
+                continue
+
+            # -----------------------------------------
+            # 🔥 OPERACIÓN — 5+
+            # -----------------------------------------
             if total >= 5:
-                price = velas[-1][4]
                 mensaje = procesar_senal(pair, cons, price)
                 if mensaje:
                     send(mensaje)
