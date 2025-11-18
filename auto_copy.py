@@ -1,34 +1,26 @@
 from deriv_api import DerivAPI
-from risk_manager import RiskManager
-
-MAP_SYMBOLS = {
-    "XAU/USD": "frxXAUUSD",
-    "EUR/USD": "frxEURUSD",
-    "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY"
-}
+import time
 
 class AutoCopy:
 
     def __init__(self, token):
         self.api = DerivAPI(token)
-        self.risk = RiskManager()
+        self.loss_streak = 0
+        self.stop_virtual = False
 
-    def ejecutar(self, pair, direction):
-        if pair not in MAP_SYMBOLS:
+    def ejecutar(self, symbol, direction):
+        if self.stop_virtual:
             return
 
-        symbol = MAP_SYMBOLS[pair]
-        lote = self.risk.calcular_lote()
+        print(f"[AUTO-COPY] Ejecutando {direction} en {symbol}")
+        self.api.buy(symbol, direction, amount=1)
 
-        if not self.risk.permitir_operacion():
-            return
+    def registrar_perdida(self):
+        self.loss_streak += 1
+        if self.loss_streak >= 3:
+            self.stop_virtual = True
+            print("STOP VIRTUAL ACTIVADO (3 pérdidas seguidas)")
 
-        self.api.buy(
-            symbol=symbol,
-            direction=direction,
-            amount=lote,
-            duration=5
-        )
-
-        self.risk.abrir_trade()
+    def reset(self):
+        self.loss_streak = 0
+        self.stop_virtual = False
