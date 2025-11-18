@@ -18,7 +18,9 @@ from auto_copy import AutoCopy
 # ------------------------------------
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
-DERIV_TOKEN = "z30pnK3N1UjKZTA"
+
+# ✔️ TOKEN DERIV NUEVO
+DERIV_TOKEN = "F2l44vScQP6FXKo"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
 NEWS_API = f"https://finnhub.io/api/v1/calendar/economic?token={FINNHUB_KEY}"
@@ -94,35 +96,28 @@ def detectar_confluencias(velas):
         "Tendencia": False
     }
 
-    # BOS / CHOCH
     if c[-1] > h[-2]: cons["BOS"] = True
     if c[-1] < l[-2]: cons["CHOCH"] = True
 
-    # Order block
     if (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]):
         cons["OrderBlock"] = True
 
-    # FVG
     if h[-2] < l[-4] or l[-2] > h[-4]:
         cons["FVG_Internal"] = True
 
     if c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996:
         cons["FVG_External"] = True
 
-    # EQH/EQL
     if abs(h[-1] - h[-2]) < (h[-1] * 0.00015): cons["EQH"] = True
     if abs(l[-1] - l[-2]) < (l[-1] * 0.00015): cons["EQL"] = True
 
-    # Liquidez interna y externa
     if h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]): cons["Liquidity_Internal"] = True
     if c[-1] > max(h[-11:-3]) or c[-1] < min(l[-11:-3]): cons["Liquidity_External"] = True
 
-    # Volatilidad
     rng = [h[i] - l[i] for i in range(12)]
     if statistics.mean(rng) > 0.0009:
         cons["Volatilidad"] = True
 
-    # Tendencia
     if c[-1] > c[-5] or c[-1] < c[-5]:
         cons["Tendencia"] = True
 
@@ -166,17 +161,14 @@ def obtener_sesion(hora):
 # ------------------------------------
 def procesar_senal(pair, cons, price):
 
-    # Dirección
     if cons["BOS"]: direction = "BUY"
     elif cons["CHOCH"]: direction = "SELL"
     else: return None
     
     simbolo_deriv = SYMBOLS[pair]
 
-    # Enviar operación a Deriv
     copy_trader.ejecutar(simbolo_deriv, direction)
 
-    # Mensaje Telegram
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
     return f"""
@@ -206,24 +198,20 @@ def analizar():
         ahora = datetime.now(mx)
         hora = ahora.hour
 
-        # Sesión
         sesion = obtener_sesion(hora)
         if sesion != ultima_sesion:
             send(f"🌍 <b>Sesión actual:</b> {sesion}")
             ultima_sesion = sesion
 
-        # Si no es sesión operativa → pausa
         if sesion == "No Operativo":
             time.sleep(300)
             continue
 
-        # Noticias → pausa
         if noticias_alto_impacto():
             send("🚨 <b>Noticias High Impact detectadas — Operaciones pausadas</b>")
             time.sleep(300)
             continue
 
-        # Revisión por par
         for pair in SYMBOLS.keys():
 
             velas = obtener_velas_5m(pair)
@@ -233,7 +221,6 @@ def analizar():
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
 
-            # Requiere mínimo 5 confluencias reales
             if total >= 5:
                 price = velas[-1][4]
                 mensaje = procesar_senal(pair, cons, price)
