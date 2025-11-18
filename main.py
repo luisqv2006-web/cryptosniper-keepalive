@@ -1,26 +1,23 @@
 # ------------------------------------
-# KEEP ALIVE — SERVIDOR 24/7
+# CRYPTOSNIPER FX — ULTRA PRO BINARIAS v4.0
 # ------------------------------------
 from keep_alive import keep_alive
 keep_alive()
 
-import json
 import time
 import requests
 import threading
 import statistics
-from datetime import datetime
 import pytz
+from datetime import datetime
 
-# Auto-copy modules
 from auto_copy import AutoCopy
 
 # ------------------------------------
-# CONFIGURACIÓN — TOKENS
+# CONFIGURACIÓN
 # ------------------------------------
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
-
 DERIV_TOKEN = "z30pnK3N1UjKZTA"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
@@ -28,24 +25,23 @@ NEWS_API = f"https://finnhub.io/api/v1/calendar/economic?token={FINNHUB_KEY}"
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-# Zona horaria México (UTC-6)
 mx = pytz.timezone("America/Mexico_City")
 
 # ------------------------------------
-# ACTIVOS
+# ACTIVOS (Deriv Symbols)
 # ------------------------------------
 SYMBOLS = {
-    "XAU/USD": "OANDA:XAU_USD",
-    "EUR/USD": "OANDA:EUR_USD",
-    "GBP/USD": "OANDA:GBP_USD",
-    "USD/JPY": "OANDA:USD_JPY"
+    "XAU/USD": "frxXAUUSD",
+    "EUR/USD": "frxEURUSD",
+    "GBP/USD": "frxGBPUSD",
+    "USD/JPY": "frxUSDJPY"
 }
 
-# Inicializar AutoCopy
+# AutoCopy inicial
 copy_trader = AutoCopy(DERIV_TOKEN)
 
 # ------------------------------------
-# ENVIAR MENSAJE A TELEGRAM
+# MENSAJERÍA TELEGRAM
 # ------------------------------------
 def send(msg):
     try:
@@ -57,8 +53,9 @@ def send(msg):
     except:
         pass
 
+
 # ------------------------------------
-# OBTENER VELAS
+# OBTENER VELAS 5M
 # ------------------------------------
 def obtener_velas_5m(symbol_key):
     symbol = SYMBOLS[symbol_key]
@@ -76,16 +73,17 @@ def obtener_velas_5m(symbol_key):
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
+
 # ------------------------------------
-# ICT PRO LIGERO — DETECCIÓN
+# DETECCIÓN ICT PRO ULTRA
 # ------------------------------------
-def detectar_confluencias(symbol_key, velas):
-    o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-10:]])
+def detectar_confluencias(velas):
+    o,h,l,c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-12:]])
 
     cons = {
         "BOS": False,
         "CHOCH": False,
-        "OB": False,
+        "OrderBlock": False,
         "FVG_Internal": False,
         "FVG_External": False,
         "EQH": False,
@@ -93,137 +91,159 @@ def detectar_confluencias(symbol_key, velas):
         "Liquidity_Internal": False,
         "Liquidity_External": False,
         "Volatilidad": False,
-        "Volumen": True
+        "Tendencia": False
     }
 
-    if c[-1] > h[-2]:
-        cons["BOS"] = True
-    if c[-1] < l[-2]:
-        cons["CHOCH"] = True
+    # BOS / CHOCH
+    if c[-1] > h[-2]: cons["BOS"] = True
+    if c[-1] < l[-2]: cons["CHOCH"] = True
 
+    # Order block
     if (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]):
-        cons["OB"] = True
+        cons["OrderBlock"] = True
 
+    # FVG
     if h[-2] < l[-4] or l[-2] > h[-4]:
         cons["FVG_Internal"] = True
 
-    rango_alto = max(h[:-1])
-    rango_bajo = min(l[:-1])
-    if c[-1] > rango_alto * 1.0004 or c[-1] < rango_bajo * 0.9996:
+    if c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996:
         cons["FVG_External"] = True
 
-    if abs(h[-1] - h[-2]) < (h[-1] * 0.00015):
-        cons["EQH"] = True
-    if abs(l[-1] - l[-2]) < (l[-1] * 0.00015):
-        cons["EQL"] = True
+    # EQH/EQL
+    if abs(h[-1] - h[-2]) < (h[-1] * 0.00015): cons["EQH"] = True
+    if abs(l[-1] - l[-2]) < (l[-1] * 0.00015): cons["EQL"] = True
 
-    if h[-1] > max(h[-5:-1]) or l[-1] < min(l[-5:-1]):
-        cons["Liquidity_Internal"] = True
+    # Liquidez interna y externa
+    if h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]): cons["Liquidity_Internal"] = True
+    if c[-1] > max(h[-11:-3]) or c[-1] < min(l[-11:-3]): cons["Liquidity_External"] = True
 
-    if c[-1] > max(h[-9:-3]) or c[-1] < min(l[-9:-3]):
-        cons["Liquidity_External"] = True
-
-    rangos = [h[i] - l[i] for i in range(10)]
-    if statistics.mean(rangos) > 0.0009:
+    # Volatilidad
+    rng = [h[i] - l[i] for i in range(12)]
+    if statistics.mean(rng) > 0.0009:
         cons["Volatilidad"] = True
 
-    return cons
+    # Tendencia
+    if c[-1] > c[-5] or c[-1] < c[-5]:
+        cons["Tendencia"] = True
+
+    return cons  
+
 
 # ------------------------------------
-# GENERAR SEÑAL + AUTO-COPY
-# ------------------------------------
-def procesar_senal(symbol_key, price, cons):
-
-    if cons["BOS"]:
-        direction = "BUY"
-    elif cons["CHOCH"]:
-        direction = "SELL"
-    else:
-        direction = "BUY" if price % 2 == 0 else "SELL"
-
-    # ⭐ Auto-Copy activo ⭐
-    copy_trader.ejecutar(symbol_key, direction)
-
-    confluencias_texto = "\n".join([f"✔ {k}" for k, v in cons.items() if v])
-
-    return f"""
-🔥✨ <b>CryptoSniper FX — Señal Institucional (Auto-Copy ON)</b>
-
-📌 Activo: {symbol_key}
-📈 Tipo: {direction}
-💵 Precio: {price}
-
-🧠 Confluencias:
-{confluencias_texto}
-
-🤖 OPERACIÓN EJECUTADA EN DERIV (5M)
-"""
-
-# ------------------------------------
-# NOTICIAS
+# FILTRO ANTI-NOTICIAS
 # ------------------------------------
 def noticias_alto_impacto():
     try:
         data = requests.get(NEWS_API).json()
         eventos = data.get("economicCalendar", [])
         hoy = datetime.now(mx).strftime("%Y-%m-%d")
+
         for ev in eventos:
             if ev.get("impact") == "High" and ev.get("date") == hoy:
                 return True
     except:
-        pass
+        return False
+
     return False
+
+
+# ------------------------------------
+# SESIONES PRO
+# ------------------------------------
+def obtener_sesion(hora):
+    if 2 <= hora < 10:
+        return "Londres"
+    elif 10 <= hora < 14:
+        return "Overlap Londres - NY"
+    elif 14 <= hora < 16:
+        return "Nueva York"
+    else:
+        return "No Operativo"
+
+
+# ------------------------------------
+# PROCESAR SEÑAL + AUTOCOPY
+# ------------------------------------
+def procesar_senal(pair, cons, price):
+
+    # Dirección
+    if cons["BOS"]: direction = "BUY"
+    elif cons["CHOCH"]: direction = "SELL"
+    else: return None
+    
+    simbolo_deriv = SYMBOLS[pair]
+
+    # Enviar operación a Deriv
+    copy_trader.ejecutar(simbolo_deriv, direction)
+
+    # Mensaje Telegram
+    texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
+
+    return f"""
+🔥✨ <b>CryptoSniper FX — ULTRA PRO</b>
+
+📌 <b>Activo:</b> {pair}
+📈 <b>Dirección:</b> {direction}
+💵 <b>Precio:</b> {price}
+
+🧠 <b>Confluencias:</b>
+{texto}
+
+🤖 Operación ejecutada automáticamente en Deriv (5m)
+"""
+
 
 # ------------------------------------
 # LOOP PRINCIPAL
 # ------------------------------------
-def analizar_cada_5m():
+def analizar():
 
-    send("🔥 CryptoSniper FX — Auto-Copy Premium Activado")
-
+    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado</b>")
     ultima_sesion = ""
-    ciclos = 0
 
     while True:
 
         ahora = datetime.now(mx)
         hora = ahora.hour
-        fecha = ahora.strftime("%Y-%m-%d")
 
-        # Sesiones
-        if 18 <= hora or hora < 2:
-            sesion = "Asia"
-        elif 2 <= hora < 10:
-            sesion = "Londres"
-        elif 10 <= hora < 16:
-            sesion = "Nueva York"
-        else:
-            sesion = "Mercado Lento"
-
+        # Sesión
+        sesion = obtener_sesion(hora)
         if sesion != ultima_sesion:
-            send(f"🌍 Inicio sesión: <b>{sesion}</b>")
+            send(f"🌍 <b>Sesión actual:</b> {sesion}")
             ultima_sesion = sesion
 
-        if noticias_alto_impacto():
-            send("🚨 Noticias de alto impacto detectadas.")
+        # Si no es sesión operativa → pausa
+        if sesion == "No Operativo":
+            time.sleep(300)
+            continue
 
-        # Analizar pares
+        # Noticias → pausa
+        if noticias_alto_impacto():
+            send("🚨 <b>Noticias High Impact detectadas — Operaciones pausadas</b>")
+            time.sleep(300)
+            continue
+
+        # Revisión por par
         for pair in SYMBOLS.keys():
+
             velas = obtener_velas_5m(pair)
             if not velas:
                 continue
 
-            cons = detectar_confluencias(pair, velas)
+            cons = detectar_confluencias(velas)
             total = sum(cons.values())
 
-            if total >= 4:
+            # Requiere mínimo 5 confluencias reales
+            if total >= 5:
                 price = velas[-1][4]
-                msg = procesar_senal(pair, price, cons)
-                send(msg)
+                mensaje = procesar_senal(pair, cons, price)
+                if mensaje:
+                    send(mensaje)
 
         time.sleep(300)
 
+
 # ------------------------------------
-# INICIAR SISTEMA
+# INICIAR BOT
 # ------------------------------------
-threading.Thread(target=analizar_cada_5m).start()
+threading.Thread(target=analizar).start()
