@@ -9,8 +9,7 @@ import time
 import requests
 import threading
 import statistics
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 # ------------------------------------
@@ -19,11 +18,11 @@ import pytz
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
-NEWS_API = "https://finnhub.io/api/v1/calendar/economic?token=" + FINNHUB_KEY
+NEWS_API = f"https://finnhub.io/api/v1/calendar/economic?token={FINNHUB_KEY}"
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-# Zona horaria México
+# Zona horaria México (UTC-6)
 mx = pytz.timezone("America/Mexico_City")
 
 # ------------------------------------
@@ -126,6 +125,7 @@ def detectar_confluencias(symbol_key, velas):
 # GENERAR SEÑAL PREMIUM
 # ------------------------------------
 def generar_senal(symbol_key, price, cons):
+
     if cons["BOS"]:
         direction = "BUY"
     elif cons["CHOCH"]:
@@ -171,7 +171,7 @@ def generar_senal(symbol_key, price, cons):
 """
 
 # ------------------------------------
-# DETECTAR NOTICIAS DE ALTO IMPACTO
+# NOTICIAS DE ALTO IMPACTO
 # ------------------------------------
 def noticias_alto_impacto():
     try:
@@ -187,11 +187,12 @@ def noticias_alto_impacto():
     return False
 
 # ------------------------------------
-# LOOP PRINCIPAL — SEÑALES + PRE-ALERTAS
+# LOOP PRINCIPAL — SEÑALES + PRE-ALERTAS + SESIONES CORREGIDAS
 # ------------------------------------
 def analizar_cada_5m():
+
     send("🔥 <b>CryptoSniper FX — Sistema Premium Activado</b>")
-    
+
     ciclos = 0
     ultima_sesion = ""
     ultimo_reporte = 0
@@ -199,33 +200,36 @@ def analizar_cada_5m():
     ultima_prealerta_por_par = {pair: 0 for pair in SYMBOLS.keys()}
 
     while True:
+
         ahora = datetime.now(mx)
         hora = ahora.hour
         fecha = ahora.strftime("%Y-%m-%d")
         timestamp_actual = int(time.time())
 
         # -------------------------
-        # Sesiones
+        # SESIONES CORRECTAS UTC-6
         # -------------------------
-        if 19 <= hora < 4:
+        if 18 <= hora or hora < 2:
             sesion = "Asia"
         elif 2 <= hora < 10:
             sesion = "Londres"
-        else:
+        elif 10 <= hora < 16:
             sesion = "Nueva York"
+        else:
+            sesion = "Mercado Lento"
 
         if sesion != ultima_sesion:
             send(f"🌍 <b>Inicio de sesión {sesion}</b>\n📈 Volatilidad entrando…")
             ultima_sesion = sesion
 
         # -------------------------
-        # Noticias
+        # NOTICIAS
         # -------------------------
         if noticias_alto_impacto():
             send("🚨 <b>Noticias de alto impacto detectadas</b>\nEvitar señales durante próximos minutos.")
 
         # -------------------------
-        # ANÁLISIS 5 MINUTOS
+        # ANÁLISIS POR PAR
         # -------------------------
         señal_encontrada = False
 
@@ -245,8 +249,8 @@ def analizar_cada_5m():
                         f"⚠️ <b>Posible Setup en Formación</b>\n\n"
                         f"📌 Activo: {pair}\n"
                         f"🧩 Confluencias detectadas: 3\n"
-                        f"🔍 A punto de cumplirse estructura ICT.\n"
-                        f"⏳ Monitoreando para entrada institucional…"
+                        f"🔍 Estructura ICT a punto de confirmarse.\n"
+                        f"⏳ Monitoreando…"
                     )
                     ultima_prealerta_por_par[pair] = timestamp_actual
 
@@ -258,7 +262,7 @@ def analizar_cada_5m():
                 señal_encontrada = True
 
         # -------------------------
-        # Estado cada 30 min
+        # Estado cada 30 min sin señales
         # -------------------------
         ciclos += 1
         if ciclos >= 6 and not señal_encontrada:
@@ -280,6 +284,7 @@ def analizar_cada_5m():
             ultimo_resumen = fecha
 
         time.sleep(300)
+
 
 # ------------------------------------
 # INICIAR SISTEMA
