@@ -29,24 +29,27 @@ class DerivAPI:
         self.send({"authorize": self.token})
 
     def _on_message(self, ws, msg):
-        pass
+        data = json.loads(msg)
+        if "error" in data:
+            print("Deriv Error:", data["error"]["message"])
 
     def _on_close(self, ws):
         self.connected = False
-        time.sleep(1)
+        print("Conexión cerrada. Reintentando...")
+        time.sleep(2)
         self._connect()
 
     def _on_error(self, ws, error):
-        print("Error:", error)
+        print("WebSocket Error:", error)
 
     def send(self, data):
         if self.connected:
             self.ws.send(json.dumps(data))
 
-    def buy(self, symbol, direction, amount, duration=5):
+    def buy(self, symbol, direction, amount=1, duration=5):
         contract = "CALL" if direction == "BUY" else "PUT"
 
-        self.send({
+        payload = {
             "buy": 1,
             "price": amount,
             "parameters": {
@@ -58,4 +61,6 @@ class DerivAPI:
                 "duration_unit": "m",
                 "currency": "USD"
             }
-        })
+        }
+
+        self.send(payload)
