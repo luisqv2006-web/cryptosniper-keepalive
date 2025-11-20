@@ -1,16 +1,15 @@
 # ------------------------------------
-# AUTO COPY — CRYPTOSNIPER FX
-# Manejo de ejecución de órdenes en Deriv
+# AUTO COPY — CRYPTOSNIPER FX (STAKE $5)
 # ------------------------------------
 
-from deriv_api import DerivAPI  # Asegúrate que tu clase DerivAPI esté en deriv_api.py
+from deriv_api import DerivAPI  # Asegúrate que deriv_api.py exista con la clase DerivAPI
 
 class AutoCopy:
     def __init__(self, token, stake=5, duration=5):
         """
-        token   -> Token de Deriv
-        stake   -> Monto por operación (USD)
-        duration -> Duración del contrato en minutos
+        token     -> Token de Deriv
+        stake     -> Monto por operación (USD)
+        duration  -> Duración del contrato en minutos
         """
         self.api = DerivAPI(token)
         self.stake = stake      # Monto fijo por defecto: $5
@@ -29,7 +28,7 @@ class AutoCopy:
         print(f"[AutoCopy] Enviando operación -> Símbolo: {symbol} | Dirección: {direction} | Monto: {monto}")
 
         try:
-            # Usa la API de Deriv para enviar la orden
+            # Envía orden al broker
             self.api.buy(symbol, direction, monto, duration=self.duration)
             print("[AutoCopy] Operación enviada correctamente a Deriv.")
         except Exception as e:
