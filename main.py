@@ -1,169 +1,92 @@
 # ------------------------------------
-# CRYPTOSNIPER FX — ULTRA PRO BINARIAS v5.0
-# Con AutoCopy + Stats + Pre-alertas
+# CRYPTOSNIPER FX — CORE BOT
+# Conexión WebSocket + Telegram /status
 # ------------------------------------
 
 from keep_alive import keep_alive
 keep_alive()
 
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import websocket
+import json
 import time
-import requests
 import threading
-import statistics
-import pytz
-from datetime import datetime
 
-from auto_copy import AutoCopy
-from stats import registrar_operacion, resumen_diario
-from deriv_api import DerivAPI   # 🔥 Agregado
+# ==============================
+# CONFIGURACIÓN — TOKENS
+# ==============================
+DERIV_TOKEN = "lit3a706U07EYMV"  # Token real Deriv
+ACCOUNT_ID = "CR9890525"
 
-# ------------------------------------
-# CONFIGURACIÓN
-# ------------------------------------
-TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
-CHAT_ID = "-1003348348510"
+TELEGRAM_TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
+CHAT_ID = -1003348348510  # Canal donde responde
 
-DERIV_TOKEN = "lit3a706U07EYMV"
+ws = None
+connected = False
 
-FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
-NEWS_API = f"https://finnhub.io/api/v1/calendar/economic?token={FINNHUB_KEY}"
 
-API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-mx = pytz.timezone("America/Mexico_City")
-
-# ------------------------------------
-# ACTIVOS DERIV
-# ------------------------------------
-SYMBOLS = {
-    "XAU/USD": "frxXAUUSD",
-    "EUR/USD": "frxEURUSD",
-    "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY"
-}
-
-# ------------------------------------
-# INICIAR CONEXIÓN WEBSOCKET DERIV
-# ------------------------------------
-api = DerivAPI(DERIV_TOKEN)
-threading.Thread(target=api.ws.run_forever).start()
-
-# Crear AutoCopy con la API activa
-copy_trader = AutoCopy(DERIV_TOKEN, stake=5, duration=5)
-
-# ------------------------------------
-# MENSAJERÍA TELEGRAM
-# ------------------------------------
-def send(msg):
-    try:
-        requests.post(API, json={
-            "chat_id": CHAT_ID,
-            "text": msg,
-            "parse_mode": "HTML"
-        })
-    except:
-        pass
-
-# ------------------------------------
-# OBTENER VELAS
-# ------------------------------------
-def obtener_velas_5m(symbol_key):
-    symbol = SYMBOLS[symbol_key]
-    now = int(time.time())
-    desde = now - (60 * 60 * 12)
-
-    url = (
-        f"https://finnhub.io/api/v1/forex/candle?"
-        f"symbol={symbol}&resolution=5&from={desde}&to={now}&token={FINNHUB_KEY}"
-    )
-
-    r = requests.get(url).json()
-    if r.get("s") != "ok":
-        return None
-
-    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
-
-# ------------------------------------
-# DETECCIÓN ICT
-# ------------------------------------
-def detectar_confluencias(velas):
-    o,h,l,c = zip(*[(x[1],x[2],x[3],x[4]) for x in velas[-12:]])
-
-    cons = {
-        "BOS": c[-1] > h[-2],
-        "CHOCH": c[-1] < l[-2],
-        "OrderBlock": (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]),
-        "FVG_Internal": h[-2] < l[-4] or l[-2] > h[-4],
-        "FVG_External": c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996,
-        "EQH": abs(h[-1]-h[-2]) < (h[-1]*0.00015),
-        "EQL": abs(l[-1]-l[-2]) < (l[-1]*0.00015),
-        "Liquidity_Internal": h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]),
-        "Liquidity_External": c[-1] > max(h[-11:-3]) or c[-1] < min(l[-11:-3]),
-        "Volatilidad": statistics.mean([h[i] - l[i] for i in range(12)]) > 0.0009,
-        "Tendencia": c[-1] != c[-5]
-    }
-
-    return cons
-
-# ------------------------------------
-# PROCESAR OPERACIÓN
-# ------------------------------------
-def procesar_senal(pair, cons, price):
-
-    if cons["BOS"]:
-        direction = "BUY"
-    elif cons["CHOCH"]:
-        direction = "SELL"
-    else:
-        return None
+# ==============================
+# FUNCIÓN DE CONEXIÓN A DERIV
+# ==============================
+def connect_deriv():
+    global ws, connected
+    ws = websocket.WebSocket()
+    ws.connect("wss://ws.deriv.com/websockets/v3?app_id=1089")
+    connected = True
     
-    simbolo_deriv = SYMBOLS[pair]
+    # Autorizar con token real
+    auth = { "authorize": DERIV_TOKEN }
+    ws.send(json.dumps(auth))
+    
+    print("🔥 [DerivAPI] Conectado y autorizado")
 
-    # Ejecuta la orden REAL
-    copy_trader.ejecutar(simbolo_deriv, direction, amount=5)
 
-    registrar_operacion(direction, price, result="pendiente")
-
-    texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
-
-    return f"""
-🔥✨ <b>CryptoSniper FX — Operación Ejecutada</b>
-
-📌 Activo: {pair}
-📈 Dirección: {direction}
-💰 Monto: $5 USD
-
-🧠 Confluencias:
-{texto}
-
-🤖 Entrada enviada a Deriv (5m)
-"""
-
-# ------------------------------------
-# LOOP
-# ------------------------------------
-def analizar():
-    send("🔥 CryptoSniper FX — ULTRA PRO Activado")
-
+# ==============================
+# ESCUCHAR RESPUESTAS DE DERIV
+# ==============================
+def listen_deriv():
+    global ws, connected
     while True:
+        try:
+            msg = ws.recv()
+            print("[Deriv] >>", msg)
+        except:
+            print("[Deriv] ❌ Desconectado, reconectando...")
+            connected = False
+            connect_deriv()
+            time.sleep(3)
 
-        for pair in SYMBOLS.keys():
 
-            velas = obtener_velas_5m(pair)
-            if not velas: continue
+# ==============================
+# COMANDO: /status
+# ==============================
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != CHAT_ID:
+        return
+    
+    estado = "🟢 Conectado a Deriv" if connected else "🔴 No conectado"
+    await context.bot.send_message(chat_id=CHAT_ID, text=f"📡 Estado del bot:\n{estado}")
 
-            cons = detectar_confluencias(velas)
-            total = sum(cons.values())
 
-            if total == 4:
-                send(f"⚠️ SETUP PRE-ENTRADA\n📌 {pair}\n🧩 4 confluencias")
+# ==============================
+# INICIAR BOT DE TELEGRAM
+# ==============================
+def start_telegram():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    
+    app.add_handler(CommandHandler("status", status))
 
-            if total >= 5:
-                price = velas[-1][4]
-                mensaje = procesar_senal(pair, cons, price)
-                if mensaje:
-                    send(mensaje)
+    print("🤖 Telegram escuchando...")
+    app.run_polling()
 
-        time.sleep(300)
 
-threading.Thread(target=analizar).start()
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    connect_deriv()
+
+    threading.Thread(target=listen_deriv).start()
+    
+    start_telegram()
