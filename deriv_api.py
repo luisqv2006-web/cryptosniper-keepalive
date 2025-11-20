@@ -1,5 +1,5 @@
 # ------------------------------------
-# DERIV API WEBSOCKET — CRYPTOSNIPER FX (CON RESULTADOS)
+# DERIV API WEBSOCKET — CRYPTOSNIPER FX
 # ------------------------------------
 
 import websocket
@@ -7,7 +7,7 @@ import json
 import threading
 import time
 
-DERIV_APP_ID = "1089"
+DERIV_APP_ID = "1089"  # App ID público
 
 class DerivAPI:
 
@@ -15,12 +15,10 @@ class DerivAPI:
         self.token = token
         self.connected = False
         self.ws = None
-        self.active_contracts = {}   # 📌 Guardamos contract_id -> direction
-        self.on_result = None        # 📌 Callback para notificar al bot
         self._connect()
 
     # ------------------------------------
-    # CONEXIÓN
+    # CONECTAR AL WEBSOCKET
     # ------------------------------------
     def _connect(self):
         self.ws = websocket.WebSocketApp(
@@ -34,83 +32,47 @@ class DerivAPI:
         time.sleep(1)
 
     def _on_open(self, ws):
-        print("[DerivAPI] ✔ Conectado. Autorizando...")
+        print("[DerivAPI] ✔ Conectado. Enviando autorización...")
         self.connected = True
         self.send({"authorize": self.token})
 
-    # ------------------------------------
-    # RECEPCIÓN DE MENSAJES
-    # ------------------------------------
     def _on_message(self, ws, msg):
         data = json.loads(msg)
 
-        # Confirmación de token
         if "authorize" in data:
-            print("[DerivAPI] 🔑 Token autorizado correctamente")
+            print("[DerivAPI] 🔐 Token autorizado correctamente.")
 
-        # Captura errores
         if "error" in data:
             print("[DerivAPI] ❌ Error:", data["error"]["message"])
-            return
-        
-        # 📌 Cuando se ejecuta una compra
-        if "buy" in data and "contract_id" in data["buy"]:
-            cid = data["buy"]["contract_id"]
-            self.active_contracts[cid] = True
-            print("[DerivAPI] 📌 Contrato creado:", cid)
 
-            # Nos suscribimos al resultado de ese contrato
-            self.send({
-                "proposal_open_contract": 1,
-                "contract_id": cid,
-                "subscribe": 1
-            })
+        if "buy" in data:
+            print("[DerivAPI] 🟢 Respuesta de compra:", data)
 
-        # 📌 Cuando el contrato finaliza
-        if "proposal_open_contract" in data:
-            poc = data["proposal_open_contract"]
-
-            if poc.get("is_sold"):
-                cid = poc.get("contract_id")
-                profit = poc.get("profit")
-                result = "WIN" if profit > 0 else "LOSS"
-
-                print(f"[DerivAPI] 🎯 Contrato finalizado: {cid} → {result} | Ganancia: {profit}")
-
-                if self.on_result:
-                    self.on_result({
-                        "contract_id": cid,
-                        "profit": profit,
-                        "result": result
-                    })
-
-                del self.active_contracts[cid]
-
-    # ------------------------------------
-    # EVENTOS WS
-    # ------------------------------------
     def _on_close(self, ws):
-        print("[DerivAPI] ⚠ Conexión cerrada. Reintentando...")
+        print("[DerivAPI] ⚠ Conexión cerrada, intentando reconectar...")
         self.connected = False
         time.sleep(1)
         self._connect()
 
     def _on_error(self, ws, error):
-        print("[DerivAPI] ⚠ Error:", error)
+        print("[DerivAPI] ❌ Error en WebSocket:", error)
 
     # ------------------------------------
-    # ENVIAR
+    # ENVIAR AL WS
     # ------------------------------------
     def send(self, data):
-        if self.connected:
-            self.ws.send(json.dumps(data))
-        else:
-            print("[DerivAPI] ❌ No hay conexión activa")
+        if not self.connected:
+            print("[DerivAPI] ❌ WS no conectado, no se pudo enviar.")
+            return
+        self.ws.send(json.dumps(data))
 
     # ------------------------------------
-    # ENVIAR ORDEN
+    # COMPRAR CONTRATO BINARIO
     # ------------------------------------
     def buy(self, symbol, direction, amount, duration=5):
+        """
+        Compra contrato CALL/PUT en Deriv.
+        """
         contract = "CALL" if direction == "BUY" else "PUT"
 
         payload = {
@@ -127,5 +89,5 @@ class DerivAPI:
             }
         }
 
-        print(f"[DerivAPI] 🚀 Orden enviada -> {symbol} | {direction} | ${amount}")
+        print(f"[DerivAPI] 🚀 Enviando orden -> {contract} | {symbol} | ${amount} | {duration}m")
         self.send(payload)
