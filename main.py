@@ -37,7 +37,7 @@ SYMBOLS = {
     "USD/JPY": "frxUSDJPY"
 }
 
-# Inicializar AutoCopy (sin monto aquí, lo mandamos en cada señal)
+# Inicializar AutoCopy
 copy_trader = AutoCopy(DERIV_TOKEN)
 
 # ------------------------------------
@@ -129,16 +129,16 @@ def procesar_senal(pair, cons, price):
 
     if cons["BOS"]: direction = "BUY"
     elif cons["CHOCH"]: direction = "SELL"
-    else: return None
-    
+    else: return
+
     simbolo_deriv = SYMBOLS[pair]
 
-    # 🔥 Aquí aplicamos monto fijo de $5
+    # Monto fijo de $5
     copy_trader.ejecutar(simbolo_deriv, direction, amount=5)
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
-    return f"""
+    send(f"""
 🔥✨ <b>CryptoSniper FX — ULTRA PRO</b>
 
 📌 <b>Activo:</b> {pair}
@@ -150,7 +150,7 @@ def procesar_senal(pair, cons, price):
 {texto}
 
 🤖 Operación ejecutada automáticamente en Deriv (5m)
-"""
+""")
 
 
 # ------------------------------------
@@ -159,15 +159,10 @@ def procesar_senal(pair, cons, price):
 def analizar():
 
     send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado ($5 por operación)</b>")
-    ultima_sesion = ""
 
     while True:
 
-        ahora = datetime.now(mx)
-        hora = ahora.hour
-
         for pair in SYMBOLS.keys():
-
             velas = obtener_velas_5m(pair)
             if not velas:
                 continue
@@ -177,9 +172,7 @@ def analizar():
 
             if total >= 5:
                 price = velas[-1][4]
-                mensaje = procesar_senal(pair, cons, price)
-                if mensaje:
-                    send(mensaje)
+                procesar_senal(pair, cons, price)
 
         time.sleep(300)
 
