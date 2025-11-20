@@ -19,9 +19,11 @@ from stats import registrar_operacion, resumen_diario
 # ------------------------------------
 # CONFIGURACIÓN
 # ------------------------------------
-TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
-CHAT_ID = "-1003348348510"
-DERIV_TOKEN = "z30pnK3N1UjKZTA"
+TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"  # Token del bot de Telegram
+CHAT_ID = "-1003348348510"                                # Grupo o canal donde manda alertas
+
+# 🔥 TOKEN REAL DE DERIV (ya actualizado)
+DERIV_TOKEN = "lit3a706U07EYMV"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
 NEWS_API = f"https://finnhub.io/api/v1/calendar/economic?token={FINNHUB_KEY}"
@@ -176,8 +178,6 @@ def procesar_senal(pair, cons, price):
 def analizar():
 
     send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado</b>")
-    ultima_sesion = ""
-    ultima_prealerta = {pair: 0 for pair in SYMBOLS.keys()}
     ultimo_resumen = ""
 
     while True:
