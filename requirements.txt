@@ -5,3 +5,4 @@ pyTelegramBotAPI
 numpy
 pandas
 websocket-client
+deriv-api
