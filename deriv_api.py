@@ -1,5 +1,5 @@
 # ------------------------------------
-# DERIV API WEBSOCKET — CRYPTOSNIPER FX
+# DERIV API WEBSOCKET — CRYPTOSNIPER FX (Versión Optimizada)
 # ------------------------------------
 
 import websocket
@@ -28,51 +28,68 @@ class DerivAPI:
             on_close=self._on_close,
             on_error=self._on_error
         )
-        threading.Thread(target=self.ws.run_forever).start()
-        time.sleep(1)
 
+        t = threading.Thread(target=self.ws.run_forever)
+        t.daemon = True   # <-- Esto evita que Render mate el socket
+        t.start()
+
+        # Esperar conexión antes de autorizar
+        for _ in range(10):
+            if self.connected:
+                break
+            time.sleep(0.5)
+
+    # ------------------------------------
+    # EVENTOS DEL WS
+    # ------------------------------------
     def _on_open(self, ws):
-        print("[DerivAPI] ✔ Conectado. Enviando autorización...")
-        self.connected = True
+        print("[DerivAPI] ✔ Conectado con Deriv. Autorizando token...")
         self.send({"authorize": self.token})
 
     def _on_message(self, ws, msg):
         data = json.loads(msg)
 
-        if "authorize" in data:
+        # Autorización
+        if data.get("authorize"):
             print("[DerivAPI] 🔐 Token autorizado correctamente.")
+            self.connected = True
 
+        # Errores
         if "error" in data:
-            print("[DerivAPI] ❌ Error:", data["error"]["message"])
+            print("❌ [DerivAPI ERROR]:", data["error"]["message"])
 
+        # Confirmación de compra
         if "buy" in data:
-            print("[DerivAPI] 🟢 Respuesta de compra:", data)
+            contract_id = data["buy"].get("contract_id")
+            print(f"🟢 Operación ejecutada con éxito | Contract ID: {contract_id}")
 
     def _on_close(self, ws):
-        print("[DerivAPI] ⚠ Conexión cerrada, intentando reconectar...")
+        print("[DerivAPI] ⚠ WebSocket cerrado. Reintentando...")
         self.connected = False
-        time.sleep(1)
+        time.sleep(2)
         self._connect()
 
     def _on_error(self, ws, error):
         print("[DerivAPI] ❌ Error en WebSocket:", error)
 
     # ------------------------------------
-    # ENVIAR AL WS
+    # ENVIAR DATOS
     # ------------------------------------
     def send(self, data):
         if not self.connected:
-            print("[DerivAPI] ❌ WS no conectado, no se pudo enviar.")
-            return
-        self.ws.send(json.dumps(data))
+            print("[DerivAPI] ❌ No conectado. Reintentando...")
+            self._connect()
+            time.sleep(1)
+
+        try:
+            self.ws.send(json.dumps(data))
+        except Exception as e:
+            print("❌ Error al enviar datos:", e)
 
     # ------------------------------------
     # COMPRAR CONTRATO BINARIO
     # ------------------------------------
     def buy(self, symbol, direction, amount, duration=5):
-        """
-        Compra contrato CALL/PUT en Deriv.
-        """
         contract = "CALL" if direction == "BUY" else "PUT"
 
         payload = {
