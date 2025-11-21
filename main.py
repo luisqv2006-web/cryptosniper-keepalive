@@ -55,8 +55,8 @@ def send(msg):
             "text": msg,
             "parse_mode": "HTML"
         })
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Error enviando mensaje: {e}")
 
 
 # ------------------------------------
@@ -74,6 +74,7 @@ def obtener_velas_5m(symbol_key):
 
     r = requests.get(url).json()
     if r.get("s") != "ok":
+        print("⚠ Error obteniendo velas")
         return None
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
@@ -181,6 +182,7 @@ def analizar():
     ultimo_resumen = ""
 
     while True:
+        print("⏳ Analizando mercados...")  # <-- Log para comprobar actividad
 
         ahora = datetime.now(mx)
         hora = ahora.hour
@@ -196,7 +198,9 @@ def analizar():
         for pair in SYMBOLS.keys():
 
             velas = obtener_velas_5m(pair)
-            if not velas: continue
+            if not velas: 
+                print("⚠ Sin datos de velas, saltando...")
+                continue
 
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
@@ -221,6 +225,6 @@ def analizar():
 
 
 # ------------------------------------
-# INICIAR BOT
+# INICIAR BOT (CON HILO DAEMON)
 # ------------------------------------
-threading.Thread(target=analizar).start()
+threading.Thread(target=analizar, daemon=True).start()
