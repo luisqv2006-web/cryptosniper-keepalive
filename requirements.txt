@@ -1,8 +1,4 @@
 flask
 requests
 pytz
-pyTelegramBotAPI
-numpy
-pandas
-websocket-client
-python-deriv-api
+statistics
