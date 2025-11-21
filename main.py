@@ -1,6 +1,6 @@
 # ------------------------------------
-# CRYPTOSNIPER FX — ULTRA PRO BINARIAS v5.0
-# Con AutoCopy + Stats + Pre-alertas (3-4 confluencias)
+# CRYPTOSNIPER FX — ULTRA PRO BINARIAS v6.0
+# AutoCopy + Risk Manager + Alertas 3-5 + Stats
 # ------------------------------------
 
 from keep_alive import keep_alive
@@ -15,13 +15,13 @@ from datetime import datetime
 
 from auto_copy import AutoCopy
 from stats import registrar_operacion, resumen_diario
+from risk_manager import RiskManager
 
 # ------------------------------------
 # CONFIGURACIÓN
 # ------------------------------------
-TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA" 
+TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
-
 DERIV_TOKEN = "lit3a706U07EYMV"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
@@ -44,6 +44,9 @@ SYMBOLS = {
 # AutoCopy ($5 por operación)
 copy_trader = AutoCopy(DERIV_TOKEN, stake=5, duration=5)
 
+# Risk Manager
+risk = RiskManager(balance_inicial=100, max_loss_day=20, max_trades_day=10)
+
 # ------------------------------------
 # ENVIAR MENSAJE TELEGRAM
 # ------------------------------------
@@ -54,8 +57,8 @@ def send(msg):
             "text": msg,
             "parse_mode": "HTML"
         })
-    except:
-        pass
+    except Exception as e:
+        print("[Error Telegram]", e)
 
 
 # ------------------------------------
@@ -138,17 +141,28 @@ def noticias_alto_impacto():
 
 
 # ------------------------------------
-# PROCESAR SEÑAL + AUTOCOPY
+# PROCESAR SEÑAL + AUTOCOPY + RISK MANAGER
 # ------------------------------------
 def procesar_senal(pair, cons, price):
 
+    # Dirección de operación
     if cons["BOS"]: direction = "BUY"
     elif cons["CHOCH"]: direction = "SELL"
-    else: return None
+    else:
+        print("No hay dirección clara, skip")
+        return None
     
+    # Validar riesgo
+    if not risk.puede_operar():
+        send("🚫 *Límite alcanzado. No operaré más hoy.*")
+        return
+
     simbolo_deriv = SYMBOLS[pair]
 
+    # Ejecutar operación
     copy_trader.ejecutar(simbolo_deriv, direction, amount=5)
+
+    # Registrar como pendiente
     registrar_operacion(direction, price, result="pendiente")
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
@@ -173,7 +187,7 @@ def procesar_senal(pair, cons, price):
 # ------------------------------------
 def analizar():
 
-    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado (3-4 alertas)</b>")
+    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado (3-5 niveles + Risk Manager)</b>")
     ultimo_resumen = ""
 
     while True:
@@ -182,6 +196,7 @@ def analizar():
         hora = ahora.hour
         fecha = ahora.strftime("%Y-%m-%d")
 
+        # Pausa por noticias
         if noticias_alto_impacto():
             send("🚨 Noticias High Impact | Operaciones pausadas")
             time.sleep(300)
@@ -195,17 +210,24 @@ def analizar():
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
 
-            # 🔥 ALERTA 3-4 CONF (MODIFICADO)
-            if 3 <= total < 5:
-                send(f"⚠️ <b>SETUP EN FORMACIÓN</b>\n📌 {pair}\n🔍 {total} confluencias detectadas.\n⌛ Observando para entrada.")
+            # -----------------------------------
+            # ALERTAS MULTINIVEL
+            # -----------------------------------
 
-            # 🔥 OPERACIÓN 5+
+            if 3 <= total < 5:
+                send(f"⚠️ *SETUP EN FORMACIÓN*\n📌 {pair}\n🔍 {total} confluencias detectadas.\n⌛ Observando.")
+            
+            if total == 4:
+                send(f"🔥 *SEÑAL FUERTE EN CAMINO*\n📌 {pair}\n🧩 4 confluencias.\n⚔ Preparando entrada…")
+
+            # Operación
             if total >= 5:
                 price = velas[-1][4]
                 mensaje = procesar_senal(pair, cons, price)
                 if mensaje:
                     send(mensaje)
 
+        # Resumen diario 10PM
         if hora == 22 and fecha != ultimo_resumen:
             resumen_diario(send)
             ultimo_resumen = fecha
