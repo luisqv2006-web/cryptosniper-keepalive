@@ -1,6 +1,6 @@
 # ------------------------------------
 # CRYPTOSNIPER FX — ULTRA PRO BINARIAS v6.0
-# AutoCopy + Risk Manager + Alertas 3-5 + Stats
+# Con AutoCopy, Risk Limit, Alertas 3-5, Stats
 # ------------------------------------
 
 from keep_alive import keep_alive
@@ -15,7 +15,7 @@ from datetime import datetime
 
 from auto_copy import AutoCopy
 from stats import registrar_operacion, resumen_diario
-from risk_manager import RiskManager
+from risk_manager import RiskManager  # sin argumentos personalizados
 
 # ------------------------------------
 # CONFIGURACIÓN
@@ -41,11 +41,11 @@ SYMBOLS = {
     "USD/JPY": "frxUSDJPY"
 }
 
-# AutoCopy ($5 por operación)
+# Inicializar AutoCopy (monto fijo)
 copy_trader = AutoCopy(DERIV_TOKEN, stake=5, duration=5)
 
-# Risk Manager
-risk = RiskManager(balance_inicial=100, max_loss_day=20, max_trades_day=10)
+# Inicializar RiskManager (versión SIMPLE sin argumentos)
+risk = RiskManager()
 
 # ------------------------------------
 # ENVIAR MENSAJE TELEGRAM
@@ -123,7 +123,7 @@ def detectar_confluencias(velas):
 
 
 # ------------------------------------
-# NOTICIAS DE ALTO IMPACTO
+# NOTICIAS HIGH IMPACT
 # ------------------------------------
 def noticias_alto_impacto():
     try:
@@ -141,44 +141,42 @@ def noticias_alto_impacto():
 
 
 # ------------------------------------
-# PROCESAR SEÑAL + AUTOCOPY + RISK MANAGER
+# PROCESAR SEÑAL + OPERAR
 # ------------------------------------
 def procesar_senal(pair, cons, price):
 
-    # Dirección de operación
+    # Determinar dirección
     if cons["BOS"]: direction = "BUY"
     elif cons["CHOCH"]: direction = "SELL"
     else:
         print("No hay dirección clara, skip")
         return None
-    
+
     # Validar riesgo
     if not risk.puede_operar():
-        send("🚫 *Límite alcanzado. No operaré más hoy.*")
-        return
+        send("🚫 Límite alcanzado. No operaré más hoy.")
+        return None
 
     simbolo_deriv = SYMBOLS[pair]
 
-    # Ejecutar operación
+    # Ejecutar orden
     copy_trader.ejecutar(simbolo_deriv, direction, amount=5)
 
-    # Registrar como pendiente
+    # Registrar operación (pendiente)
     registrar_operacion(direction, price, result="pendiente")
 
-    texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
+    confluencias_txt = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
     return f"""
-🔥✨ <b>CryptoSniper FX — Operación Ejecutada</b>
+🔥 <b>Operación Ejecutada</b>
 
-📌 <b>Activo:</b> {pair}
-📈 <b>Dirección:</b> {direction}
-💵 <b>Precio:</b> {price}
-💰 <b>Monto:</b> $5 USD
+📌 Activo: {pair}
+📈 Dirección: {direction}
+💰 Monto: $5
+🧠 Confluencias:
+{confluencias_txt}
 
-🧠 <b>Confluencias:</b>
-{texto}
-
-🤖 Orden enviada automáticamente a Deriv (5m)
+🤖 Orden enviada a Deriv
 """
 
 
@@ -187,7 +185,7 @@ def procesar_senal(pair, cons, price):
 # ------------------------------------
 def analizar():
 
-    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado (3-5 niveles + Risk Manager)</b>")
+    send("🔥 CryptoSniper FX — Activado ✔")
     ultimo_resumen = ""
 
     while True:
@@ -196,38 +194,36 @@ def analizar():
         hora = ahora.hour
         fecha = ahora.strftime("%Y-%m-%d")
 
-        # Pausa por noticias
+        # Pausar por noticias
         if noticias_alto_impacto():
-            send("🚨 Noticias High Impact | Operaciones pausadas")
+            send("🚨 Noticias High Impact | Bot pausado temporalmente.")
             time.sleep(300)
             continue
 
         for pair in SYMBOLS.keys():
 
             velas = obtener_velas_5m(pair)
-            if not velas: continue
+            if not velas:
+                continue
 
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
 
-            # -----------------------------------
-            # ALERTAS MULTINIVEL
-            # -----------------------------------
-
+            # Alertas
             if 3 <= total < 5:
-                send(f"⚠️ *SETUP EN FORMACIÓN*\n📌 {pair}\n🔍 {total} confluencias detectadas.\n⌛ Observando.")
-            
-            if total == 4:
-                send(f"🔥 *SEÑAL FUERTE EN CAMINO*\n📌 {pair}\n🧩 4 confluencias.\n⚔ Preparando entrada…")
+                send(f"⚠ SETUP en formación | {pair} | {total} confluencias")
 
-            # Operación
+            if total == 4:
+                send(f"🔥 Señal fuerte aproximándose | {pair}")
+
+            # Entrada final
             if total >= 5:
                 price = velas[-1][4]
                 mensaje = procesar_senal(pair, cons, price)
                 if mensaje:
                     send(mensaje)
 
-        # Resumen diario 10PM
+        # Enviar resumen a las 10 PM
         if hora == 22 and fecha != ultimo_resumen:
             resumen_diario(send)
             ultimo_resumen = fecha
