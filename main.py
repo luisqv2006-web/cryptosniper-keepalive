@@ -1,6 +1,6 @@
 # ------------------------------------
 # CRYPTOSNIPER FX — ULTRA PRO BINARIAS v5.0
-# Con AutoCopy + Stats + Pre-alertas
+# Con AutoCopy + Stats + Pre-alertas (3-4 confluencias)
 # ------------------------------------
 
 from keep_alive import keep_alive
@@ -32,7 +32,7 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ------------------------------------
-# ACTIVOS (Deriv Symbols)
+# ACTIVOS
 # ------------------------------------
 SYMBOLS = {
     "XAU/USD": "frxXAUUSD",
@@ -41,6 +41,7 @@ SYMBOLS = {
     "USD/JPY": "frxUSDJPY"
 }
 
+# AutoCopy ($5 por operación)
 copy_trader = AutoCopy(DERIV_TOKEN, stake=5, duration=5)
 
 # ------------------------------------
@@ -55,6 +56,7 @@ def send(msg):
         })
     except:
         pass
+
 
 # ------------------------------------
 # OBTENER VELAS 5M
@@ -75,16 +77,26 @@ def obtener_velas_5m(pair):
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
+
 # ------------------------------------
-# DETECTAR CONFLUENCIAS ICT
+# DETECCIÓN ICT CONFLUENCIAS
 # ------------------------------------
 def detectar_confluencias(velas):
     o,h,l,c = zip(*[(x[1],x[2],x[3],x[4]) for x in velas[-12:]])
 
-    cons = {k: False for k in [
-        "BOS","CHOCH","OrderBlock","FVG_Internal","FVG_External",
-        "EQH","EQL","Liquidity_Internal","Liquidity_External","Volatilidad","Tendencia"
-    ]}
+    cons = {
+        "BOS": False,
+        "CHOCH": False,
+        "OrderBlock": False,
+        "FVG_Internal": False,
+        "FVG_External": False,
+        "EQH": False,
+        "EQL": False,
+        "Liquidity_Internal": False,
+        "Liquidity_External": False,
+        "Volatilidad": False,
+        "Tendencia": False
+    }
 
     if c[-1] > h[-2]: cons["BOS"] = True
     if c[-1] < l[-2]: cons["CHOCH"] = True
@@ -101,12 +113,14 @@ def detectar_confluencias(velas):
 
     rng = [h[i] - l[i] for i in range(12)]
     if statistics.mean(rng) > 0.0009: cons["Volatilidad"] = True
+
     if c[-1] != c[-5]: cons["Tendencia"] = True
 
     return cons
 
+
 # ------------------------------------
-# HIGH IMPACT NEWS
+# NOTICIAS DE ALTO IMPACTO
 # ------------------------------------
 def noticias_alto_impacto():
     try:
@@ -122,10 +136,12 @@ def noticias_alto_impacto():
 
     return False
 
+
 # ------------------------------------
 # PROCESAR SEÑAL + AUTOCOPY
 # ------------------------------------
 def procesar_senal(pair, cons, price):
+
     if cons["BOS"]: direction = "BUY"
     elif cons["CHOCH"]: direction = "SELL"
     else: return None
@@ -133,7 +149,6 @@ def procesar_senal(pair, cons, price):
     simbolo_deriv = SYMBOLS[pair]
 
     copy_trader.ejecutar(simbolo_deriv, direction, amount=5)
-
     registrar_operacion(direction, price, result="pendiente")
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
@@ -152,14 +167,17 @@ def procesar_senal(pair, cons, price):
 🤖 Orden enviada automáticamente a Deriv (5m)
 """
 
+
 # ------------------------------------
 # LOOP PRINCIPAL
 # ------------------------------------
 def analizar():
-    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado</b>")
+
+    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado (3-4 alertas)</b>")
     ultimo_resumen = ""
 
     while True:
+
         ahora = datetime.now(mx)
         hora = ahora.hour
         fecha = ahora.strftime("%Y-%m-%d")
@@ -170,15 +188,18 @@ def analizar():
             continue
 
         for pair in SYMBOLS.keys():
+
             velas = obtener_velas_5m(pair)
             if not velas: continue
 
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
 
-            if total == 4:
-                send(f"⚠️ <b>SETUP EN FORMACIÓN</b>\n📌 {pair}\n🧩 4 confluencias detectadas\n⏳ Posible entrada pronto.")
+            # 🔥 ALERTA 3-4 CONF (MODIFICADO)
+            if 3 <= total < 5:
+                send(f"⚠️ <b>SETUP EN FORMACIÓN</b>\n📌 {pair}\n🔍 {total} confluencias detectadas.\n⌛ Observando para entrada.")
 
+            # 🔥 OPERACIÓN 5+
             if total >= 5:
                 price = velas[-1][4]
                 mensaje = procesar_senal(pair, cons, price)
@@ -191,5 +212,8 @@ def analizar():
 
         time.sleep(300)
 
-# 🔥 Ejecutar hilo
+
+# ------------------------------------
+# INICIAR BOT
+# ------------------------------------
 threading.Thread(target=analizar).start()
