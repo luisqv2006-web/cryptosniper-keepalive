@@ -1,4 +1,7 @@
-python-telegram-bot==20.7
-websocket-client
 flask
 requests
+pytz
+pyTelegramBotAPI
+numpy
+pandas
+websocket-client
