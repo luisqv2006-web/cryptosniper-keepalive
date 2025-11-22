@@ -1,7 +1,7 @@
-# ------------------------------------
-# CRYPTOSNIPER FX — ULTRA PRO BINARIAS v6.5
-# AutoCopy + Risk Manager + Alertas 3-5 + Stats + KeepAlive
-# ------------------------------------
+# =============================================================
+# CRYPTOSNIPER FX — v7.5 HÍBRIDA PRO (AUTO RESULTADOS)
+# Forex + Boom/Crash + Step (5M) | AutoCopy + Risk Manager
+# =============================================================
 
 from keep_alive import keep_alive
 keep_alive()
@@ -16,40 +16,70 @@ from datetime import datetime
 from auto_copy import AutoCopy
 from stats import registrar_operacion, resumen_diario
 from risk_manager import RiskManager
+from deriv_api import DerivAPI
 
-# ------------------------------------
-# CONFIGURACIÓN
-# ------------------------------------
+# ================================
+# 🔧 CONFIGURACIÓN GENERAL
+# ================================
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
 DERIV_TOKEN = "lit3a706U07EYMV"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
-NEWS_API = f"https://finnhub.io/api/v1/calendar/economic?token={FINNHUB_KEY}"
-
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 mx = pytz.timezone("America/Mexico_City")
 
-# ------------------------------------
-# ACTIVOS (BINARIAS DERIV)
-# ------------------------------------
+# ================================
+# 🔥 ACTIVOS A OPERAR
+# ================================
 SYMBOLS = {
-    "XAU/USD": "frxXAUUSD",
+    # FOREX
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY"
+    "USD/JPY": "frxUSDJPY",
+
+    # STEP INDEX
+    "STEP": "R_100",
+    "STEP1S": "1HZ100V",
+
+    # BOOM & CRASH
+    "BOOM300": "BOOM300",
+    "BOOM500": "BOOM500",
+    "BOOM1000": "BOOM1000",
+    "CRASH300": "CRASH300",
+    "CRASH500": "CRASH500",
+    "CRASH1000": "CRASH1000"
 }
 
-# AutoCopy ($5 por operación)
-copy_trader = AutoCopy(DERIV_TOKEN, stake=5, duration=5)
+# ================================
+# 📌 RISK MANAGER ($5 límite diario)
+# ================================
+risk = RiskManager(
+    balance_inicial=27,
+    max_loss_day=5,
+    max_trades_day=15
+)
 
-# Risk Manager
-risk = RiskManager(balance_inicial=100, max_loss_day=20, max_trades_day=10)
+# ================================
+# 🔌 CALLBACK PARA RESULTADOS
+# ================================
+def registrar_resultado(profit):
+    """
+    Profit real del contrato → se registra en riesgo y estadística
+    """
+    print(f"[MAIN] RESULTADO REGISTRADO: {profit}")
+    risk.registrar_resultado(profit)
 
-# ------------------------------------
-# ENVIAR MENSAJE TELEGRAM
-# ------------------------------------
+# ================================
+# 🤖 API + AUTO COPY
+# ================================
+api = DerivAPI(DERIV_TOKEN, on_result_callback=registrar_resultado)
+copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
+
+# ================================
+# 📩 ENVIAR MENSAJE
+# ================================
 def send(msg):
     try:
         requests.post(API, json={
@@ -61,186 +91,123 @@ def send(msg):
         print("[Error Telegram]", e)
 
 
-# ------------------------------------
-# OBTENER VELAS 5M
-# ------------------------------------
-def obtener_velas_5m(pair):
-    symbol = SYMBOLS[pair]
+# ================================
+# 📊 OBTENER VELAS 5M
+# ================================
+def obtener_velas_5m(asset):
+    symbol = SYMBOLS[asset]
     now = int(time.time())
     desde = now - (60 * 60 * 12)
 
-    url = (
-        f"https://finnhub.io/api/v1/forex/candle?"
-        f"symbol={symbol}&resolution=5&from={desde}&to={now}&token={FINNHUB_KEY}"
-    )
-
+    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=5&from={desde}&to={now}&token={FINNHUB_KEY}"
     r = requests.get(url).json()
+
     if r.get("s") != "ok":
         return None
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 
-# ------------------------------------
-# DETECCIÓN ICT CONFLUENCIAS
-# ------------------------------------
+# ================================
+# 🔍 DETECCIÓN ICT HÍBRIDA
+# ================================
 def detectar_confluencias(velas):
     o,h,l,c = zip(*[(x[1],x[2],x[3],x[4]) for x in velas[-12:]])
 
     cons = {
-        "BOS": False,
-        "CHOCH": False,
-        "OrderBlock": False,
-        "FVG_Internal": False,
-        "FVG_External": False,
-        "EQH": False,
-        "EQL": False,
-        "Liquidity_Internal": False,
-        "Liquidity_External": False,
-        "Volatilidad": False,
-        "Tendencia": False
+        "BOS": c[-1] > h[-2],
+        "CHOCH": c[-1] < l[-2],
+        "OrderBlock": (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]),
+        "FVG_Internal": h[-2] < l[-4] or l[-2] > h[-4],
+        "FVG_External": c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996,
+        "Liquidity_Internal": h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]),
+        "Volatilidad": statistics.mean([h[i] - l[i] for i in range(12)]) > 0.0009
     }
-
-    if c[-1] > h[-2]: cons["BOS"] = True
-    if c[-1] < l[-2]: cons["CHOCH"] = True
-    if (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]):
-        cons["OrderBlock"] = True
-    if h[-2] < l[-4] or l[-2] > h[-4]:
-        cons["FVG_Internal"] = True
-    if c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996:
-        cons["FVG_External"] = True
-    if abs(h[-1]-h[-2]) < (h[-1]*0.00015): cons["EQH"] = True
-    if abs(l[-1]-l[-2]) < (l[-1]*0.00015): cons["EQL"] = True
-    if h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]): cons["Liquidity_Internal"] = True
-    if c[-1] > max(h[-11:-3]) or c[-1] < min(l[-11:-3]): cons["Liquidity_External"] = True
-
-    rng = [h[i] - l[i] for i in range(12)]
-    if statistics.mean(rng) > 0.0009: cons["Volatilidad"] = True
-
-    if c[-1] != c[-5]: cons["Tendencia"] = True
 
     return cons
 
 
-# ------------------------------------
-# NOTICIAS DE ALTO IMPACTO
-# ------------------------------------
-def noticias_alto_impacto():
-    try:
-        data = requests.get(NEWS_API).json()
-        eventos = data.get("economicCalendar", [])
-        hoy = datetime.now(mx).strftime("%Y-%m-%d")
+# ================================
+# ✨ PROCESAR SEÑAL
+# ================================
+def procesar_senal(asset, cons, price):
 
-        for ev in eventos:
-            if ev.get("impact") == "High" and ev.get("date") == hoy:
-                return True
-    except:
-        return False
-
-    return False
-
-
-# ------------------------------------
-# PROCESAR SEÑAL + AUTOCOPY + RISK MANAGER
-# ------------------------------------
-def procesar_senal(pair, cons, price):
-
-    if cons["BOS"]: direction = "BUY"
-    elif cons["CHOCH"]: direction = "SELL"
+    if cons["BOS"]:
+        direction = "BUY"
+    elif cons["CHOCH"]:
+        direction = "SELL"
     else:
-        print("No hay dirección clara, skip")
         return None
     
     if not risk.puede_operar():
-        send("🚫 *Límite alcanzado. No operaré más hoy.*")
+        send("⚠ <b>Límite diario alcanzado.</b>")
         return
-    
-    simbolo_deriv = SYMBOLS[pair]
 
-    copy_trader.ejecutar(simbolo_deriv, direction, amount=5)
+    symbol = SYMBOLS[asset]
 
-    registrar_operacion(direction, price, result="pendiente")
+    # Ejecuta operación real
+    api.buy(symbol, direction, amount=1, duration=5)
+
+    registrar_operacion(direction, price, "pendiente")
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
     return f"""
-🔥✨ <b>CryptoSniper FX — Operación Ejecutada</b>
+🔥 <b>OPERACIÓN EJECUTADA</b>
 
-📌 <b>Activo:</b> {pair}
-📈 <b>Dirección:</b> {direction}
-💵 <b>Precio:</b> {price}
-💰 <b>Monto:</b> $5 USD
+📌 Activo: {asset}
+📈 Dirección: {direction}
+💰 Monto: $1
+🕒 Timeframe: 5m
 
-🧠 <b>Confluencias:</b>
+🧩 Confluencias:
 {texto}
 
-🤖 Orden enviada automáticamente a Deriv (5m)
+🤖 AutoCopy enviado a Deriv
 """
 
 
-# ------------------------------------
-# LOOP PRINCIPAL
-# ------------------------------------
+# ================================
+# 🔄 LOOP PRINCIPAL
+# ================================
 def analizar():
-
-    send("🔥 <b>CryptoSniper FX — ULTRA PRO Activado (3-5 niveles + Risk Manager)</b>")
+    send("🚀 <b>CryptoSniper FX — Modo Híbrido Activado</b>")
     ultimo_resumen = ""
 
     while True:
-
         ahora = datetime.now(mx)
-        hora = ahora.hour
         fecha = ahora.strftime("%Y-%m-%d")
 
-        if noticias_alto_impacto():
-            send("🚨 Noticias High Impact | Operaciones pausadas")
-            time.sleep(300)
-            continue
+        for asset in SYMBOLS.keys():
 
-        for pair in SYMBOLS.keys():
-
-            velas = obtener_velas_5m(pair)
-            if not velas: continue
+            velas = obtener_velas_5m(asset)
+            if not velas:
+                continue
 
             cons = detectar_confluencias(velas)
             total = sum(cons.values())
+            price = velas[-1][4]
 
-            if 3 <= total < 5:
-                send(f"⚠️ *SETUP EN FORMACIÓN*\n📌 {pair}\n🔍 {total} confluencias detectadas.\n⌛ Observando.")
-            
+            # Alertas
+            if total == 3:
+                send(f"📍 Setup en formación\n{asset} | {total} confluencias.")
             if total == 4:
-                send(f"🔥 *SEÑAL FUERTE EN CAMINO*\n📌 {pair}\n🧩 4 confluencias.\n⚔ Preparando entrada…")
+                send(f"⚠ Posible entrada fuerte\n{asset} | {total} confluencias.")
 
+            # Operación
             if total >= 5:
-                price = velas[-1][4]
-                mensaje = procesar_senal(pair, cons, price)
-                if mensaje:
-                    send(mensaje)
+                msg = procesar_senal(asset, cons, price)
+                if msg:
+                    send(msg)
 
-        if hora == 22 and fecha != ultimo_resumen:
+        if ahora.hour == 22 and fecha != ultimo_resumen:
             resumen_diario(send)
             ultimo_resumen = fecha
 
         time.sleep(300)
 
 
-# ------------------------------------
-# INICIAR BOT
-# ------------------------------------
+# ================================
+# ▶ INICIAR
+# ================================
 threading.Thread(target=analizar).start()
-
-
-# ------------------------------------
-# AUTOPING — EVITA QUE RENDER DUERMA
-# ------------------------------------
-def auto_ping():
-    import requests, time
-    while True:
-        try:
-            requests.get("https://cryptosniper-keepalive.onrender.com")
-            print("[KeepAlive] Ping enviado ✔")
-        except:
-            print("[KeepAlive] Falló el ping ⚠")
-        time.sleep(240)
-
-threading.Thread(target=auto_ping, daemon=True).start()
