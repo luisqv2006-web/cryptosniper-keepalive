@@ -1,5 +1,5 @@
 # ------------------------------------
-# DERIV API WEBSOCKET — AUTO-RECONNECT
+# DERIV API WEBSOCKET — AUTO RESULTADOS
 # ------------------------------------
 
 import websocket
@@ -11,15 +11,24 @@ DERIV_APP_ID = "1089"
 
 class DerivAPI:
 
-    def __init__(self, token):
+    def __init__(self, token, on_result_callback=None):
+        """
+        on_result_callback = función que recibe el profit cuando una operación termina
+        Ej:
+           def resultado(profit):
+               print("Profit:", profit)
+        """
         self.token = token
         self.connected = False
         self.ws = None
 
+        # callback para RiskManager
+        self.on_result_callback = on_result_callback
+
         # inicia conexión
         self._connect()
 
-        # heartbeat constante
+        # heartbeat
         threading.Thread(target=self.heartbeat, daemon=True).start()
 
     # ------------------------------------
@@ -41,17 +50,40 @@ class DerivAPI:
         print("[DerivAPI] ✔ Conectado.")
         self.send({"authorize": self.token})
 
+        # suscribir a contratos activos
+        self.send({"subscribe": 1, "proposal_open_contract": 1})
+
+    # ------------------------------------
+    # RECEPCIÓN DE MENSAJES
+    # ------------------------------------
     def _on_message(self, ws, msg):
         data = json.loads(msg)
 
+        # Autorización
         if "authorize" in data:
             print("[DerivAPI] 🔐 Token autorizado correctamente.")
 
+        # Error
         if "error" in data:
             print("[DerivAPI] ❌ Error:", data["error"]["message"])
+            return
 
+        # Confirmación de compra
         if "buy" in data:
-            print("[DerivAPI] 🟢 Respuesta de compra:", data)
+            print("[DerivAPI] 🟢 Compra enviada:", data)
+
+        # Contrato finalizado (resultado real)
+        if "proposal_open_contract" in data:
+            contract = data["proposal_open_contract"]
+
+            if contract.get("is_sold"):  # el contrato ya terminó
+                profit = contract.get("profit", 0)
+                
+                print(f"[DerivAPI] 📉 Contrato finalizado | Profit: {profit}")
+
+                # mandar resultado al RiskManager si existe callback
+                if self.on_result_callback:
+                    self.on_result_callback(profit)
 
     def _on_close(self, ws):
         print("[DerivAPI] ⚠ Conexión cerrada. Reintentando...")
@@ -64,7 +96,7 @@ class DerivAPI:
         self.connected = False
 
     # ------------------------------------
-    # HEARTBEAT — REPARA DESCONEXIONES
+    # HEARTBEAT
     # ------------------------------------
     def heartbeat(self):
         while True:
