@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v7.5 HÍBRIDA PRO (AUTO RESULTADOS)
-# Forex + Boom/Crash + Step (5M) | AutoCopy + Risk Manager
+# CRYPTOSNIPER FX — v7.6 HÍBRIDA PRO (AUTO RESULTADOS + BALANCE)
+# Forex 5M | AutoCopy + Stats + Alertas Premium
 # =============================================================
 
 from keep_alive import keep_alive
@@ -14,7 +14,7 @@ import pytz
 from datetime import datetime
 
 from auto_copy import AutoCopy
-from stats import registrar_operacion, resumen_diario
+from stats import registrar_resultado, obtener_balance
 from risk_manager import RiskManager
 from deriv_api import DerivAPI
 
@@ -31,51 +31,49 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ================================
-# 🔥 ACTIVOS A OPERAR
+# 🔥 ACTIVOS A OPERAR (Forex)
 # ================================
 SYMBOLS = {
-    # FOREX
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
     "USD/JPY": "frxUSDJPY",
-
-    # STEP INDEX
-    "STEP": "R_100",
-    "STEP1S": "1HZ100V",
-
-    # BOOM & CRASH
-    "BOOM300": "BOOM300",
-    "BOOM500": "BOOM500",
-    "BOOM1000": "BOOM1000",
-    "CRASH300": "CRASH300",
-    "CRASH500": "CRASH500",
-    "CRASH1000": "CRASH1000"
+    "USD/CAD": "frxUSDCAD"
 }
 
 # ================================
-# 📌 RISK MANAGER ($5 límite diario)
+# 📌 RISK MANAGER (modo conservador)
 # ================================
 risk = RiskManager(
     balance_inicial=27,
     max_loss_day=5,
-    max_trades_day=15
+    max_trades_day=12
 )
 
 # ================================
-# 🔌 CALLBACK PARA RESULTADOS
+# 🔌 API + CALLBACK RESULTADOS
 # ================================
-def registrar_resultado(profit):
-    """
-    Profit real del contrato → se registra en riesgo y estadística
-    """
-    print(f"[MAIN] RESULTADO REGISTRADO: {profit}")
-    risk.registrar_resultado(profit)
+def callback_result(result, profit):
+    # Registrar estadística
+    registrar_resultado(result, profit)
 
-# ================================
-# 🤖 API + AUTO COPY
-# ================================
-api = DerivAPI(DERIV_TOKEN, on_result_callback=registrar_resultado)
-copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
+    # Calcular balance virtual
+    balance = obtener_balance()
+
+    emoji = "🟢💰" if result == "WIN" else "🔴❌"
+
+    send(f"""
+{emoji} <b>{result} | {profit:.2f} USD</b>
+
+💰 <b>Balance Total:</b> {balance:.2f} USD
+📊 Estrategia ICT 5m | Confirmaciones 5+
+🤖 Resultados automáticos desde Deriv
+""")
+
+# Conectar API
+api = DerivAPI(DERIV_TOKEN, on_result=callback_result)
+
+# AutoCopy con stake bajo
+copy_trader = AutoCopy(api, stake=1, duration=5)
 
 # ================================
 # 📩 ENVIAR MENSAJE
@@ -145,15 +143,13 @@ def procesar_senal(asset, cons, price):
 
     symbol = SYMBOLS[asset]
 
-    # Ejecuta operación real
+    # Ejecutar operación real con DerivAPI
     api.buy(symbol, direction, amount=1, duration=5)
-
-    registrar_operacion(direction, price, "pendiente")
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
     return f"""
-🔥 <b>OPERACIÓN EJECUTADA</b>
+🚀 <b>ENTRADA EJECUTADA</b>
 
 📌 Activo: {asset}
 📈 Dirección: {direction}
@@ -171,7 +167,7 @@ def procesar_senal(asset, cons, price):
 # 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 <b>CryptoSniper FX — Modo Híbrido Activado</b>")
+    send("🚀 <b>CryptoSniper FX — Monitoreando mercado...</b>")
     ultimo_resumen = ""
 
     while True:
@@ -188,21 +184,17 @@ def analizar():
             total = sum(cons.values())
             price = velas[-1][4]
 
-            # Alertas
+            # Alertas previas
             if total == 3:
-                send(f"📍 Setup en formación\n{asset} | {total} confluencias.")
+                send(f"📍 Setup en formación | {asset} | {total} confluencias.")
             if total == 4:
-                send(f"⚠ Posible entrada fuerte\n{asset} | {total} confluencias.")
+                send(f"⚡ Entrada inminente | {asset} | {total} confluencias.")
 
-            # Operación
+            # Entrada real
             if total >= 5:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
-
-        if ahora.hour == 22 and fecha != ultimo_resumen:
-            resumen_diario(send)
-            ultimo_resumen = fecha
 
         time.sleep(300)
 
