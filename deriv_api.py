@@ -1,5 +1,5 @@
 # ------------------------------------
-# DERIV API WEBSOCKET — CRYPTOSNIPER FX
+# DERIV API WEBSOCKET — AUTO-RECONNECT
 # ------------------------------------
 
 import websocket
@@ -7,9 +7,7 @@ import json
 import threading
 import time
 
-# Usa el endpoint correcto para Deriv (NO binaryws)
-WS_ENDPOINT = "wss://ws.derivws.com/websockets/v3"
-DERIV_APP_ID = "1089"  # App ID público
+DERIV_APP_ID = "1089"
 
 class DerivAPI:
 
@@ -17,59 +15,66 @@ class DerivAPI:
         self.token = token
         self.connected = False
         self.ws = None
+
+        # inicia conexión
         self._connect()
 
+        # heartbeat constante
+        threading.Thread(target=self.heartbeat, daemon=True).start()
+
     # ------------------------------------
-    # CONECTAR AL WEBSOCKET
+    # CONEXIÓN WEBSOCKET
     # ------------------------------------
     def _connect(self):
-        print("[DerivAPI] 🌐 Conectando al WebSocket...")
         self.ws = websocket.WebSocketApp(
-            f"{WS_ENDPOINT}?app_id={DERIV_APP_ID}",
+            f"wss://ws.binaryws.com/websockets/v3?app_id={DERIV_APP_ID}",
             on_open=self._on_open,
             on_message=self._on_message,
             on_close=self._on_close,
             on_error=self._on_error
         )
-
-        # Hilo para mantener conexión activa
-        threading.Thread(target=self.ws.run_forever).start()
+        threading.Thread(target=self.ws.run_forever, daemon=True).start()
         time.sleep(1)
 
     def _on_open(self, ws):
-        print("[DerivAPI] ✔ Conectado. Enviando autorización...")
         self.connected = True
+        print("[DerivAPI] ✔ Conectado.")
         self.send({"authorize": self.token})
 
     def _on_message(self, ws, msg):
         data = json.loads(msg)
 
-        # Respuesta de autorización
         if "authorize" in data:
-            if "error" in data["authorize"]:
-                print("[DerivAPI] ❌ Error al autorizar token:", data["authorize"]["error"]["message"])
-            else:
-                print("[DerivAPI] 🔐 Token autorizado correctamente.")
+            print("[DerivAPI] 🔐 Token autorizado correctamente.")
 
-        # Errores generales
         if "error" in data:
-            print("[DerivAPI] ❌ ERROR API:", data["error"]["message"])
+            print("[DerivAPI] ❌ Error:", data["error"]["message"])
 
-        # Confirmación de compra
         if "buy" in data:
             print("[DerivAPI] 🟢 Respuesta de compra:", data)
 
     def _on_close(self, ws):
-        print("[DerivAPI] ⚠ Conexión cerrada. Reintentando en 1s...")
+        print("[DerivAPI] ⚠ Conexión cerrada. Reintentando...")
         self.connected = False
-        time.sleep(1)
+        time.sleep(3)
         self._connect()
 
     def _on_error(self, ws, error):
         print("[DerivAPI] ❌ Error en WebSocket:", error)
+        self.connected = False
 
     # ------------------------------------
-    # ENVIAR AL WEBSOCKET
+    # HEARTBEAT — REPARA DESCONEXIONES
+    # ------------------------------------
+    def heartbeat(self):
+        while True:
+            if not self.connected:
+                print("[DerivAPI] 🔁 Intentando reconexión por heartbeat...")
+                self._connect()
+            time.sleep(60)
+
+    # ------------------------------------
+    # ENVIAR
     # ------------------------------------
     def send(self, data):
         if not self.connected:
@@ -78,15 +83,10 @@ class DerivAPI:
         self.ws.send(json.dumps(data))
 
     # ------------------------------------
-    # REALIZAR COMPRA BINARIA
+    # COMPRAR
     # ------------------------------------
     def buy(self, symbol, direction, amount, duration=5):
-        """
-        Compra contrato CALL o PUT en Deriv
-        direction: BUY -> CALL | SELL -> PUT
-        """
-
-        contract = "CALL" if direction.upper() == "BUY" else "PUT"
+        contract = "CALL" if direction == "BUY" else "PUT"
 
         payload = {
             "buy": 1,
@@ -102,5 +102,5 @@ class DerivAPI:
             }
         }
 
-        print(f"[DerivAPI] 🚀 Orden enviada -> {contract} | {symbol} | ${amount} | {duration}m")
+        print(f"[DerivAPI] 🚀 Orden -> {contract} | {symbol} | ${amount}")
         self.send(payload)
