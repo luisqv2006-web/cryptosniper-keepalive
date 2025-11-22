@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v7.6 HÍBRIDA PRO (AUTO RESULTADOS + BALANCE)
+# CRYPTOSNIPER FX — v7.6 PRO (AUTO RESULTADOS + BALANCE)
 # Forex 5M | AutoCopy + Stats + Alertas Premium
 # =============================================================
 
@@ -36,12 +36,11 @@ mx = pytz.timezone("America/Mexico_City")
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY",
-    "USD/CAD": "frxUSDCAD"
+    "USD/JPY": "frxUSDJPY"
 }
 
 # ================================
-# 📌 RISK MANAGER (modo conservador)
+# 📌 RISK MANAGER (conservador)
 # ================================
 risk = RiskManager(
     balance_inicial=27,
@@ -50,13 +49,10 @@ risk = RiskManager(
 )
 
 # ================================
-# 🔌 API + CALLBACK RESULTADOS
+# 🔌 CALLBACK DE RESULTADOS
 # ================================
 def callback_result(result, profit):
-    # Registrar estadística
     registrar_resultado(result, profit)
-
-    # Calcular balance virtual
     balance = obtener_balance()
 
     emoji = "🟢💰" if result == "WIN" else "🔴❌"
@@ -69,14 +65,16 @@ def callback_result(result, profit):
 🤖 Resultados automáticos desde Deriv
 """)
 
-# Conectar API
-api = DerivAPI(DERIV_TOKEN, on_result=callback_result)
-
-# AutoCopy con stake bajo
-copy_trader = AutoCopy(api, stake=1, duration=5)
 
 # ================================
-# 📩 ENVIAR MENSAJE
+# ⚡ INICIALIZAR API Y AUTO COPY
+# ================================
+api = DerivAPI(DERIV_TOKEN, on_result=callback_result)
+copy_trader = AutoCopy(api, stake=1, duration=5)
+
+
+# ================================
+# 📩 ENVIAR MENSAJE TELEGRAM
 # ================================
 def send(msg):
     try:
@@ -97,9 +95,12 @@ def obtener_velas_5m(asset):
     now = int(time.time())
     desde = now - (60 * 60 * 12)
 
-    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=5&from={desde}&to={now}&token={FINNHUB_KEY}"
-    r = requests.get(url).json()
+    url = (
+        f"https://finnhub.io/api/v1/forex/candle?"
+        f"symbol={symbol}&resolution=5&from={desde}&to={now}&token={FINNHUB_KEY}"
+    )
 
+    r = requests.get(url).json()
     if r.get("s") != "ok":
         return None
 
@@ -126,7 +127,7 @@ def detectar_confluencias(velas):
 
 
 # ================================
-# ✨ PROCESAR SEÑAL
+# 🎯 PROCESAR SEÑAL
 # ================================
 def procesar_senal(asset, cons, price):
 
@@ -136,15 +137,15 @@ def procesar_senal(asset, cons, price):
         direction = "SELL"
     else:
         return None
-    
+
     if not risk.puede_operar():
         send("⚠ <b>Límite diario alcanzado.</b>")
         return
 
     symbol = SYMBOLS[asset]
 
-    # Ejecutar operación real con DerivAPI
-    api.buy(symbol, direction, amount=1, duration=5)
+    # Ejecutar operación
+    copy_trader.ejecutar(symbol, direction, amount=1)
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
@@ -168,12 +169,8 @@ def procesar_senal(asset, cons, price):
 # ================================
 def analizar():
     send("🚀 <b>CryptoSniper FX — Monitoreando mercado...</b>")
-    ultimo_resumen = ""
 
     while True:
-        ahora = datetime.now(mx)
-        fecha = ahora.strftime("%Y-%m-%d")
-
         for asset in SYMBOLS.keys():
 
             velas = obtener_velas_5m(asset)
@@ -190,7 +187,7 @@ def analizar():
             if total == 4:
                 send(f"⚡ Entrada inminente | {asset} | {total} confluencias.")
 
-            # Entrada real
+            # Ejecutar operación
             if total >= 5:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
@@ -200,6 +197,6 @@ def analizar():
 
 
 # ================================
-# ▶ INICIAR
+# ▶ INICIAR BOT
 # ================================
 threading.Thread(target=analizar).start()
