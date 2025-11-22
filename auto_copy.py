@@ -1,47 +1,36 @@
 # ------------------------------------
-# AUTO COPY — CRYPTOSNIPER FX (STAKE $5)
-# Optimizado para Render / Producción
+# AUTO COPY — USA MISMA API (SIN WS EXTRA)
+# CRYPTOSNIPER FX v7.6
 # ------------------------------------
 
-from deriv_api import DerivAPI
-import threading
-
 class AutoCopy:
-    def __init__(self, token, stake=5, duration=5):
-        self.api = DerivAPI(token)
+    def __init__(self, api, stake=1, duration=5):
+        """
+        api      -> Instancia de DerivAPI ya conectada
+        stake    -> Monto por operación (USD)
+        duration -> Duración del contrato (minutos)
+        """
+        self.api = api
         self.stake = stake
         self.duration = duration
 
     def ejecutar(self, symbol, direction, amount=None):
+        """
+        Ejecuta operación usando la API existente.
+        No se abre nuevo WebSocket.
+        """
         monto = amount if amount is not None else self.stake
 
-        print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print(f"[AutoCopy] → Enviando operación...")
-        print(f"📌 Símbolo: {symbol}")
-        print(f"📈 Dirección: {direction}")
-        print(f"💵 Monto: ${monto}")
-        print(f"⏱ Duración: {self.duration} minutos")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"[AutoCopy] Ejecutando -> {direction} | {symbol} | ${monto}")
 
-        thread = threading.Thread(
-            target=self._send_order,
-            args=(symbol, direction, monto)
-        )
-        thread.daemon = True
-        thread.start()
-
-    def _send_order(self, symbol, direction, monto):
         try:
-            response = self.api.buy(
-                symbol=symbol,
-                direction=direction,
+            self.api.buy(
+                symbol,
+                direction,
                 amount=monto,
                 duration=self.duration
             )
-            print("[AutoCopy] ✔ Orden enviada correctamente.")
-            print("[AutoCopy] 📤 Respuesta Broker:", response)
+            print("[AutoCopy] ✔ Orden enviada correctamente a Deriv.")
 
         except Exception as e:
-            print("[AutoCopy] ❌ ERROR EN LA OPERACIÓN")
-            print("Motivo:", e)
-            print("────────────────────────────────────")
+            print(f"[AutoCopy] ❌ Error al ejecutar operación:", e)
