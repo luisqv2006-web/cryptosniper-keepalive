@@ -8,26 +8,14 @@ import threading
 
 class AutoCopy:
     def __init__(self, token, stake=5, duration=5):
-        """
-        token     -> Token de Deriv
-        stake     -> Monto por operación (USD)
-        duration  -> Minutos del contrato
-        """
         self.api = DerivAPI(token)
         self.stake = stake
         self.duration = duration
 
     def ejecutar(self, symbol, direction, amount=None):
-        """
-        Ejecuta operación en Deriv en segundo plano.
-        symbol    -> símbolo del activo (ej: frxEURUSD)
-        direction -> BUY o SELL
-        amount    -> monto opcional
-        """
         monto = amount if amount is not None else self.stake
 
-        print("")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"[AutoCopy] → Enviando operación...")
         print(f"📌 Símbolo: {symbol}")
         print(f"📈 Dirección: {direction}")
@@ -42,9 +30,6 @@ class AutoCopy:
         thread.daemon = True
         thread.start()
 
-    # ------------------------------------
-    # PROCESAR ORDEN
-    # ------------------------------------
     def _send_order(self, symbol, direction, monto):
         try:
             response = self.api.buy(
@@ -53,7 +38,6 @@ class AutoCopy:
                 amount=monto,
                 duration=self.duration
             )
-
             print("[AutoCopy] ✔ Orden enviada correctamente.")
             print("[AutoCopy] 📤 Respuesta Broker:", response)
 
