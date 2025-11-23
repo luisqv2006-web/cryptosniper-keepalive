@@ -1,42 +1,93 @@
+# =============================================================
+# STATS — CRYPTOSNIPER FX
+# Guardado local de operaciones, winrate y resultados
+# =============================================================
+
 import json
-import os
 from datetime import datetime
+import os
 
-FILE = "stats.json"
+RUTA = "stats.json"
 
-# Crear archivo si no existe
-if not os.path.exists(FILE):
-    with open(FILE, "w") as f:
-        json.dump({"win":0, "loss":0, "profit":0, "history":[]}, f)
+# --------------------------------------------
+# CARGAR O CREAR ARCHIVO
+# --------------------------------------------
+def cargar_stats():
+    if not os.path.exists(RUTA):
+        data = {
+            "operaciones": [],
+            "wins": 0,
+            "loss": 0,
+            "total": 0
+        }
+        guardar_stats(data)
+        return data
+    
+    with open(RUTA, "r") as file:
+        return json.load(file)
 
-def registrar_resultado(result, profit):
-    """Guarda win/loss y ganancia acumulada"""
-    with open(FILE, "r") as f:
-        data = json.load(f)
+# --------------------------------------------
+# GUARDAR
+# --------------------------------------------
+def guardar_stats(data):
+    with open(RUTA, "w") as file:
+        json.dump(data, file, indent=4)
 
-    if result == "WIN":
-        data["win"] += 1
-    else:
-        data["loss"] += 1
+# --------------------------------------------
+# REGISTRAR OPERACIÓN
+# --------------------------------------------
+def registrar_operacion(direction, price, result="pendiente"):
+    data = cargar_stats()
 
-    data["profit"] += profit
+    operacion = {
+        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "direccion": direction,
+        "precio": price,
+        "resultado": result
+    }
 
-    data["history"].append({
-        "result": result,
-        "profit": profit,
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
+    data["operaciones"].append(operacion)
+    data["total"] += 1
 
-    with open(FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    guardar_stats(data)
 
-    return data
+# --------------------------------------------
+# ACTUALIZAR RESULTADO
+# --------------------------------------------
+def actualizar_resultado(index, result):
+    data = cargar_stats()
 
+    if index < len(data["operaciones"]):
+        data["operaciones"][index]["resultado"] = result
+        
+        if result == "win":
+            data["wins"] += 1
+        elif result == "loss":
+            data["loss"] += 1
+        
+        guardar_stats(data)
 
-def obtener_balance():
-    """Devuelve profit acumulado para crear un balance virtual basado en ganancias."""
-    if not os.path.exists(FILE):
-        return 0
-    with open(FILE, "r") as f:
-        data = json.load(f)
-    return data.get("profit", 0)
+# --------------------------------------------
+# RESUMEN DIARIO PARA TELEGRAM
+# --------------------------------------------
+def resumen_diario(send_func):
+    data = cargar_stats()
+
+    if data["total"] == 0:
+        send_func("📊 Hoy no hubo operaciones.")
+        return
+
+    winrate = (data["wins"] / data["total"]) * 100 if data["total"] > 0 else 0
+
+    mensaje = f"""
+📅 <b>RESUMEN DIARIO — CryptoSniper FX</b>
+
+📌 Total operaciones: {data["total"]}
+🟢 Ganadas: {data["wins"]}
+🔴 Perdidas: {data["loss"]}
+📈 Winrate: {winrate:.2f}%
+
+🧠 Mantén disciplina y gestión de riesgo.
+"""
+
+    send_func(mensaje)
