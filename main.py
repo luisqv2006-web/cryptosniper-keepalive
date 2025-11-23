@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v8.1 (Tendencia Macro + Sesiones + 5M)
-# Scalping PRO | Forex + Step | AutoCopy + Risk Manager
+# CRYPTOSNIPER FX — v8.2 (Tendencia Macro + Sesiones + Scalping 5M)
+# Estrategia Híbrida | Forex + Step | AutoCopy + Risk Manager
 # =============================================================
 
 from keep_alive import keep_alive
@@ -18,6 +18,7 @@ from stats import registrar_operacion, resumen_diario
 from risk_manager import RiskManager
 from deriv_api import DerivAPI
 
+
 # ================================
 # 🔧 CONFIGURACIÓN GENERAL
 # ================================
@@ -25,7 +26,7 @@ TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
 DERIV_TOKEN = "lit3a706U07EYMV"
 
-FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi60d4d2n7"
+FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 mx = pytz.timezone("America/Mexico_City")
@@ -44,7 +45,7 @@ SYMBOLS = {
 
 
 # ================================
-# 📌 RISK MANAGER (cuenta chica)
+# 📌 RISK MANAGER (cuenta pequeña)
 # ================================
 risk = RiskManager(
     balance_inicial=27,
@@ -54,14 +55,13 @@ risk = RiskManager(
 
 
 # ================================
-# 🔌 CALLBACK PARA RESULTADOS
+# 🔌 CALLBACK RESULTADOS REALES
 # ================================
 def registrar_resultado(profit):
     resultado = "WIN" if profit > 0 else "LOSS"
     profit_fmt = f"{profit:.2f}"
 
-    send(f"🔔 {resultado} ${profit_fmt}")
-
+    send(f"🎯 Resultado: <b>{resultado}</b> — ${profit_fmt}")
     risk.registrar_resultado(profit)
 
 
@@ -73,7 +73,7 @@ copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
 
 
 # ================================
-# 📩 ENVIAR MENSAJE TELEGRAM
+# 📩 ENVIAR MENSAJE
 # ================================
 def send(msg):
     try:
@@ -93,23 +93,23 @@ def obtener_velas(asset, timeframe="5m"):
     symbol = SYMBOLS[asset]
     now = int(time.time())
 
-    resolutions = {
-        "5m": 5,
-        "1h": 60
-    }
-
+    resolutions = {"5m": 5, "1h": 60}
     resol = resolutions[timeframe]
-    desde = now - (60 * 60 * 24)
+
+    desde = now - (60 * 60 * 24)  # 24h de historial
 
     url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
     r = requests.get(url).json()
 
-    if r.get("s") != "ok": return None
+    if r.get("s") != "ok":
+        print("[WARN] No hay velas disponibles", symbol)
+        return None
+
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 
 # ================================
-# 📌 EMA CÁLCULO
+# 📌 EMA (Tendencia Macro)
 # ================================
 def ema(values, period=50):
     k = 2 / (period + 1)
@@ -125,13 +125,12 @@ def tendencia_h1(asset):
 
     closes = [x[4] for x in velas[-80:]]
     ema50 = ema(closes, 50)
-    precio_actual = closes[-1]
 
-    return "ALCISTA" if precio_actual > ema50 else "BAJISTA"
+    return "ALCISTA" if closes[-1] > ema50 else "BAJISTA"
 
 
 # ================================
-# 🔍 DETECCIÓN ICT MICRO (5M)
+# 🔍 MICRO ESTRUCTURA (5M)
 # ================================
 def detectar_confluencias(velas):
     o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-12:]])
@@ -145,7 +144,7 @@ def detectar_confluencias(velas):
 
 
 # ================================
-# ⏰ SESIONES (S1)
+# ⏰ SESIONES (Filtro)
 # Londres (2–10 MX) | NY (7–14 MX)
 # ================================
 def sesion_activa():
@@ -157,35 +156,42 @@ def sesion_activa():
 # ✨ PROCESAR SEÑAL
 # ================================
 def procesar_senal(asset, cons, price):
-    if cons["BOS"]: direction = "BUY"
-    elif cons["CHOCH"]: direction = "SELL"
-    else: return None
+    
+    # Determinar dirección
+    if cons["BOS"]:
+        direction = "BUY"
+    elif cons["CHOCH"]:
+        direction = "SELL"
+    else:
+        return None
 
-    # Filtro de sesiones
+    # 1️⃣ Sesiones
     if not sesion_activa():
         return None
 
-    # Filtro tendencia macro
+    # 2️⃣ Macro Tendencia
     tendencia = tendencia_h1(asset)
-    if (tendencia == "ALCISTA" and direction == "SELL") or \
-       (tendencia == "BAJISTA" and direction == "BUY"):
+    if tendencia == "ALCISTA" and direction == "SELL":
+        return None
+    if tendencia == "BAJISTA" and direction == "BUY":
         return None
 
-    # Validar riesgo
+    # 3️⃣ Riesgo
     if not risk.puede_operar():
-        send("⚠ Límite diario alcanzado.")
+        send("⚠ <b>Límite diario alcanzado</b>")
         return
 
-    symbol = SYMBOLS[asset]
-    api.buy(symbol, direction, amount=1, duration=5)
-
+    # 4️⃣ Enviar orden real
+    api.buy(SYMBOLS[asset], direction, amount=1, duration=5)
     registrar_operacion(direction, price, "pendiente")
 
     return f"""
-🔥 Operación enviada
+🔥 <b>OPERACIÓN ENVIADA</b>
+
 📌 Activo: {asset}
 📈 Dirección: {direction}
-⏳ TF: 5M | Macro: {tendencia}
+⌛ TF: 5M | Macro: {tendencia}
+💰 Monto: $1
 """
 
 
@@ -193,7 +199,7 @@ def procesar_senal(asset, cons, price):
 # 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 CryptoSniper FX — Versión Inteligente Activada")
+    send("🚀 CryptoSniper FX — Versión v8.2 Activa")
     ultimo_resumen = ""
 
     while True:
@@ -201,7 +207,6 @@ def analizar():
         fecha = ahora.strftime("%Y-%m-%d")
 
         for asset in SYMBOLS.keys():
-
             velas = obtener_velas(asset, "5m")
             if not velas: continue
 
@@ -210,14 +215,15 @@ def analizar():
             price = velas[-1][4]
 
             if total == 3:
-                send(f"📍 Setup en formación\n{asset} | {total} señales.")
+                send(f"📍 Setup formación | {asset} ({total} señales)")
             if total == 4:
-                send(f"⚠ Entrada fuerte posible\n{asset} | {total} señales.")
+                send(f"⚠ Setup fuerte | {asset} ({total} señales)")
 
             if total >= 5:
                 msg = procesar_senal(asset, cons, price)
                 if msg: send(msg)
 
+        # Resumen diario
         if ahora.hour == 22 and fecha != ultimo_resumen:
             resumen_diario(send)
             ultimo_resumen = fecha
@@ -226,6 +232,6 @@ def analizar():
 
 
 # ================================
-# ▶ INICIAR
+# ▶ INICIAR BOT
 # ================================
 threading.Thread(target=analizar).start()
