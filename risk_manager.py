@@ -1,47 +1,54 @@
-import datetime
+# =============================================================
+# RISK MANAGER — CRYPTOSNIPER FX
+# Control de pérdidas, trades diarios y balance lógico
+# =============================================================
+
+from datetime import datetime
 
 class RiskManager:
-    def __init__(self, balance_inicial=27, max_loss_day=5, max_trades_day=15):
-        self.balance_inicial = balance_inicial
+    def __init__(self, balance_inicial=50, max_loss_day=10, max_trades_day=20):
+        self.balance = balance_inicial
         self.max_loss_day = max_loss_day
         self.max_trades_day = max_trades_day
 
-        # Estado del día
-        self.trades_realizados = 0
-        self.perdidas_acumuladas = 0
-        self.fecha_actual = datetime.date.today()
+        self.perdida_hoy = 0
+        self.trades_hoy = 0
+        self.fecha = datetime.now().strftime("%Y-%m-%d")
 
-    def _reset_si_nuevo_dia(self):
-        hoy = datetime.date.today()
-        if hoy != self.fecha_actual:
-            self.fecha_actual = hoy
-            self.trades_realizados = 0
-            self.perdidas_acumuladas = 0
+    # --------------------------------------------
+    # RESET DIARIO
+    # --------------------------------------------
+    def _reset_diario(self):
+        fecha_actual = datetime.now().strftime("%Y-%m-%d")
+        if fecha_actual != self.fecha:
+            print("[Risk] 🔄 Nuevo día, reiniciando límites.")
+            self.fecha = fecha_actual
+            self.perdida_hoy = 0
+            self.trades_hoy = 0
 
-    def registrar_resultado(self, profit):
-        """
-        Registra automáticamente el resultado de la operación.
-        profit > 0 → win
-        profit < 0 → loss
-        """
-        self._reset_si_nuevo_dia()
-        self.trades_realizados += 1
-
-        if profit < 0:
-            self.perdidas_acumuladas += abs(profit)
-
+    # --------------------------------------------
+    # ¿SE PUEDE OPERAR?
+    # --------------------------------------------
     def puede_operar(self):
-        """
-        Verifica si el bot todavía puede operar hoy.
-        """
-        self._reset_si_nuevo_dia()
+        self._reset_diario()
 
-        if self.trades_realizados >= self.max_trades_day:
-            print("[Risk] Bloqueo: Se alcanzó el límite de trades.")
+        if self.perdida_hoy >= self.max_loss_day:
+            print("[Risk] 🚫 Límite de pérdida diaria alcanzado.")
             return False
-
-        if self.perdidas_acumuladas >= self.max_loss_day:
-            print("[Risk] Bloqueo: Se alcanzó el límite diario de pérdida.")
+        
+        if self.trades_hoy >= self.max_trades_day:
+            print("[Risk] 🚫 Límite de operaciones diarias alcanzado.")
             return False
-
+        
         return True
+
+    # --------------------------------------------
+    # REGISTRAR RESULTADO
+    # --------------------------------------------
+    def registrar_resultado(self, profit):
+        self.trades_hoy += 1
+        self.balance += profit
+        if profit < 0:
+            self.perdida_hoy += abs(profit)
+
+        print(f"[Risk] Resultado: {profit} | Balance actual: {self.balance} | Pérdida hoy: {self.perdida_hoy}")
