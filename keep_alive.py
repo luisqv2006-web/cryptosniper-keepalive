@@ -8,7 +8,6 @@ def home():
     return "✔ Bot activo — CryptoSniper FX funcionando"
 
 def run():
-    # Escucha en el puerto que Render define
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
