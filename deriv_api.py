@@ -1,30 +1,27 @@
-# ------------------------------------
-# DERIV API WEBSOCKET — AUTO RESULTADOS WIN/LOSS
-# ------------------------------------
+# =============================================================
+# DERIV API WEBSOCKET — CRYPTOSNIPER FX
+# Conexión directa para ejecución de contratos
+# =============================================================
 
 import websocket
 import json
 import threading
 import time
 
-DERIV_APP_ID = "1089"  # App ID público para conexión WebSocket
+DERIV_APP_ID = "1089"
 
 class DerivAPI:
 
-    def __init__(self, token, on_result=None):
-        """
-        token = Token de Deriv
-        on_result = Función callback que recibe (result, profit)
-        """
+    def __init__(self, token, on_result_callback=None):
         self.token = token
         self.connected = False
         self.ws = None
-        self.on_result = on_result
+        self.on_result_callback = on_result_callback
         self._connect()
 
-    # ------------------------------------
-    # CONECTAR WEBSOCKET
-    # ------------------------------------
+    # --------------------------------------------
+    # CONECTAR
+    # --------------------------------------------
     def _connect(self):
         self.ws = websocket.WebSocketApp(
             f"wss://ws.binaryws.com/websockets/v3?app_id={DERIV_APP_ID}",
@@ -37,80 +34,50 @@ class DerivAPI:
         time.sleep(1)
 
     def _on_open(self, ws):
-        print("[DerivAPI] 🌐 Conectado. Autorizando...")
+        print("[DerivAPI] ✔ Conectado. Autorizando...")
         self.connected = True
         self.send({"authorize": self.token})
 
-    # ------------------------------------
-    # RECIBIR MENSAJES
-    # ------------------------------------
+    # --------------------------------------------
+    # EVENTOS
+    # --------------------------------------------
     def _on_message(self, ws, msg):
         data = json.loads(msg)
 
-        # Autorización exitosa
-        if "authorize" in data:
+        # TOKEN VALIDADO
+        if data.get("authorize"):
             print("[DerivAPI] 🔐 Token autorizado correctamente.")
 
-        # Respuesta de compra
+        # RESPUESTA DE COMPRA
         if data.get("buy"):
-            contract_id = data["buy"]["contract_id"]
-            print(f"[DerivAPI] 🟢 Contrato abierto: {contract_id}")
+            print("[DerivAPI] 🟢 Orden enviada:", data)
 
-            # Solicitar seguimiento del contrato
-            self.send({
-                "proposal_open_contract": 1,
-                "contract_id": contract_id
-            })
+        # ERRORES
+        if "error" in data:
+            print("[DerivAPI] ❌ Error:", data["error"]["message"])
 
-        # Respuesta de contrato en ejecución o cerrado
-        if data.get("proposal_open_contract"):
-
-            poc = data["proposal_open_contract"]
-
-            # Si todavía no se cierra, ignorar
-            if not poc.get("is_sold"):
-                return
-            
-            pnl = poc["profit"]
-            result = "WIN" if pnl > 0 else "LOSS"
-
-            print(f"[DerivAPI] 🎯 Contrato cerrado: {result} | {pnl:.2f} USD")
-
-            # Ejecutar callback (registra resultado en el bot)
-            if self.on_result:
-                try:
-                    self.on_result(result, pnl)
-                except Exception as e:
-                    print("[DerivAPI] ❌ Error en callback:", e)
-
-    # ------------------------------------
-    # ERRORES / RECONEXIÓN
-    # ------------------------------------
     def _on_close(self, ws):
-        print("[DerivAPI] ⚠ Desconectado, reconectando...")
+        print("[DerivAPI] ⚠ Conexión cerrada. Reintentando...")
         self.connected = False
         time.sleep(1)
         self._connect()
 
     def _on_error(self, ws, error):
-        print("[DerivAPI] ❌ Error WebSocket:", error)
+        print("[DerivAPI] ❌ Error:", error)
 
-    # ------------------------------------
-    # ENVIAR MENSAJES WS
-    # ------------------------------------
+    # --------------------------------------------
+    # ENVIAR MENSAJES
+    # --------------------------------------------
     def send(self, data):
         if not self.connected:
-            print("[DerivAPI] ❌ No conectado, no se pudo enviar.")
+            print("[DerivAPI] ❌ No conectado.")
             return
         self.ws.send(json.dumps(data))
 
-    # ------------------------------------
-    # ENVIAR ORDEN (COMPRA BINARIA)
-    # ------------------------------------
+    # --------------------------------------------
+    # COMPRAR CONTRATO
+    # --------------------------------------------
     def buy(self, symbol, direction, amount, duration=5):
-        """
-        Ejecuta una operación real en Deriv
-        """
         contract = "CALL" if direction == "BUY" else "PUT"
 
         payload = {
@@ -127,5 +94,5 @@ class DerivAPI:
             }
         }
 
-        print(f"[DerivAPI] 🚀 Orden enviada -> {contract} {symbol} | ${amount}")
+        print(f"[DerivAPI] 🚀 Enviando: {contract} | {symbol} | ${amount} | {duration}m")
         self.send(payload)
