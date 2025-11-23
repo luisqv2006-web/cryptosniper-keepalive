@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v7.6 PRO (AUTO RESULTADOS + BALANCE)
-# Forex 5M | AutoCopy + Stats + Alertas Premium
+# CRYPTOSNIPER FX — v8.0 MULTI-TF PROFESIONAL
+# 5M señales → 1M confirma | SOLO FOREX + STEP | AutoCopy + Riesgo
 # =============================================================
 
 from keep_alive import keep_alive
@@ -9,12 +9,12 @@ keep_alive()
 import time
 import requests
 import threading
-import statistics
 import pytz
 from datetime import datetime
+import statistics
 
 from auto_copy import AutoCopy
-from stats import registrar_resultado, obtener_balance
+from stats import registrar_operacion, resumen_diario
 from risk_manager import RiskManager
 from deriv_api import DerivAPI
 
@@ -31,50 +31,33 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ================================
-# 🔥 ACTIVOS A OPERAR (Forex)
+# 🏦 ACTIVOS PERMITIDOS
 # ================================
+FOREX = ["EUR/USD", "GBP/USD", "USD/JPY"]
+STEP = ["STEP", "STEP1S"]  # Mapeamos abajo
+
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY"
+    "USD/JPY": "frxUSDJPY",
+
+    "STEP": "R_100",
+    "STEP1S": "1HZ100V",
 }
 
 # ================================
-# 📌 RISK MANAGER (conservador)
+# 🛡 RISK MANAGER
 # ================================
-risk = RiskManager(
-    balance_inicial=27,
-    max_loss_day=5,
-    max_trades_day=12
-)
+risk = RiskManager(balance_inicial=27, max_loss_day=5, max_trades_day=15)
 
 # ================================
-# 🔌 CALLBACK DE RESULTADOS
+# 🤖 API + AUTOCOPY
 # ================================
-def callback_result(result, profit):
-    registrar_resultado(result, profit)
-    balance = obtener_balance()
-
-    emoji = "🟢💰" if result == "WIN" else "🔴❌"
-
-    send(f"""
-{emoji} <b>{result} | {profit:.2f} USD</b>
-
-💰 <b>Balance Total:</b> {balance:.2f} USD
-📊 Estrategia ICT 5m | Confirmaciones 5+
-🤖 Resultados automáticos desde Deriv
-""")
-
+api = DerivAPI(DERIV_TOKEN)
+copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
 
 # ================================
-# ⚡ INICIALIZAR API Y AUTO COPY
-# ================================
-api = DerivAPI(DERIV_TOKEN, on_result=callback_result)
-copy_trader = AutoCopy(api, stake=1, duration=5)
-
-
-# ================================
-# 📩 ENVIAR MENSAJE TELEGRAM
+# 📩 TELEGRAM
 # ================================
 def send(msg):
     try:
@@ -83,24 +66,21 @@ def send(msg):
             "text": msg,
             "parse_mode": "HTML"
         })
-    except Exception as e:
-        print("[Error Telegram]", e)
+    except:
+        pass
 
 
 # ================================
-# 📊 OBTENER VELAS 5M
+# 🔎 FUNCIONES DE VELAS FINNHUB
 # ================================
-def obtener_velas_5m(asset):
+def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
     now = int(time.time())
     desde = now - (60 * 60 * 12)
 
-    url = (
-        f"https://finnhub.io/api/v1/forex/candle?"
-        f"symbol={symbol}&resolution=5&from={desde}&to={now}&token={FINNHUB_KEY}"
-    )
-
+    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={timeframe}&from={desde}&to={now}&token={FINNHUB_KEY}"
     r = requests.get(url).json()
+
     if r.get("s") != "ok":
         return None
 
@@ -108,26 +88,40 @@ def obtener_velas_5m(asset):
 
 
 # ================================
-# 🔍 DETECCIÓN ICT HÍBRIDA
+# 🔍 DETECCIÓN DE CONFLUENCIAS (5M)
 # ================================
 def detectar_confluencias(velas):
     o,h,l,c = zip(*[(x[1],x[2],x[3],x[4]) for x in velas[-12:]])
 
-    cons = {
+    return {
         "BOS": c[-1] > h[-2],
         "CHOCH": c[-1] < l[-2],
         "OrderBlock": (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]),
-        "FVG_Internal": h[-2] < l[-4] or l[-2] > h[-4],
-        "FVG_External": c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996,
-        "Liquidity_Internal": h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]),
+        "FVG": c[-1] > max(h[:-1])*1.0004 or c[-1] < min(l[:-1])*0.9996,
         "Volatilidad": statistics.mean([h[i] - l[i] for i in range(12)]) > 0.0009
     }
 
-    return cons
+
+# ================================
+# ✨ CONFIRMACIÓN EN 1M
+# ================================
+def confirmar_1m(asset, direction):
+    velas = obtener_velas(asset, 1)
+    if not velas: 
+        return False
+
+    o,h,l,c = zip(*[(x[1],x[2],x[3],x[4]) for x in velas[-5:]])
+
+    if direction == "BUY":
+        return c[-1] > o[-1] and l[-1] > l[-2]
+    if direction == "SELL":
+        return c[-1] < o[-1] and h[-1] < h[-2]
+
+    return False
 
 
 # ================================
-# 🎯 PROCESAR SEÑAL
+# ⚡ PROCESAR SEÑAL FINAL
 # ================================
 def procesar_senal(asset, cons, price):
 
@@ -137,30 +131,35 @@ def procesar_senal(asset, cons, price):
         direction = "SELL"
     else:
         return None
+    
+    if asset in FOREX or asset in STEP:
+        if not confirmar_1m(asset, direction):
+            print("[TF] ❌ 1M NO confirma.")
+            return None
 
     if not risk.puede_operar():
-        send("⚠ <b>Límite diario alcanzado.</b>")
+        send("🚫 <b>Límite diario alcanzado</b>")
         return
 
     symbol = SYMBOLS[asset]
 
-    # Ejecutar operación
-    copy_trader.ejecutar(symbol, direction, amount=1)
+    api.buy(symbol, direction, amount=1, duration=5)
+    registrar_operacion(direction, price, "pendiente")
 
     texto = "\n".join([f"✔ {k}" for k,v in cons.items() if v])
 
     return f"""
-🚀 <b>ENTRADA EJECUTADA</b>
+🔥 <b>OPERACIÓN EJECUTADA</b>
 
 📌 Activo: {asset}
 📈 Dirección: {direction}
 💰 Monto: $1
-🕒 Timeframe: 5m
+🕒 Timeframe: 5M (Confirmado 1M)
 
 🧩 Confluencias:
 {texto}
 
-🤖 AutoCopy enviado a Deriv
+🔍 Multi-TF: ACTIVADO
 """
 
 
@@ -168,30 +167,34 @@ def procesar_senal(asset, cons, price):
 # 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 <b>CryptoSniper FX — Monitoreando mercado...</b>")
+    send("🚀 <b>CryptoSniper FX — v8.0 Multi-TF Activado</b>")
+    ultimo_resumen = ""
 
     while True:
+        ahora = datetime.now(mx)
+        fecha = ahora.strftime("%Y-%m-%d")
+
         for asset in SYMBOLS.keys():
+            velas5 = obtener_velas(asset, 5)
+            if not velas5: continue
 
-            velas = obtener_velas_5m(asset)
-            if not velas:
-                continue
-
-            cons = detectar_confluencias(velas)
+            cons = detectar_confluencias(velas5)
             total = sum(cons.values())
-            price = velas[-1][4]
+            price = velas5[-1][4]
 
-            # Alertas previas
             if total == 3:
-                send(f"📍 Setup en formación | {asset} | {total} confluencias.")
+                send(f"📍 Setup en formación\n{asset} | {total} confluencias.")
             if total == 4:
-                send(f"⚡ Entrada inminente | {asset} | {total} confluencias.")
+                send(f"⚠ Señal fuerte en camino\n{asset} | {total} confluencias.")
 
-            # Ejecutar operación
             if total >= 5:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
+
+        if ahora.hour == 22 and fecha != ultimo_resumen:
+            resumen_diario(send)
+            ultimo_resumen = fecha
 
         time.sleep(300)
 
