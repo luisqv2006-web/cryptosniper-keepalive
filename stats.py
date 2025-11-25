@@ -1,17 +1,17 @@
 # =============================================================
-# STATS — CRYPTOSNIPER FX
-# Guardado local de operaciones, winrate y resultados
+#  STATS SYSTEM — CryptoSniper v8.3
+#  Registra operaciones, winrate y resumen diario
 # =============================================================
 
 import json
-from datetime import datetime
 import os
+from datetime import datetime
 
 RUTA = "stats.json"
 
-# --------------------------------------------
-# CARGAR O CREAR ARCHIVO
-# --------------------------------------------
+# -------------------------------------------------------------
+#  Cargar archivo o crear uno nuevo
+# -------------------------------------------------------------
 def cargar_stats():
     if not os.path.exists(RUTA):
         data = {
@@ -22,20 +22,22 @@ def cargar_stats():
         }
         guardar_stats(data)
         return data
-    
-    with open(RUTA, "r") as file:
-        return json.load(file)
 
-# --------------------------------------------
-# GUARDAR
-# --------------------------------------------
+    with open(RUTA, "r") as f:
+        return json.load(f)
+
+
+# -------------------------------------------------------------
+#  Guardar archivo
+# -------------------------------------------------------------
 def guardar_stats(data):
-    with open(RUTA, "w") as file:
-        json.dump(data, file, indent=4)
+    with open(RUTA, "w") as f:
+        json.dump(data, f, indent=4)
 
-# --------------------------------------------
-# REGISTRAR OPERACIÓN
-# --------------------------------------------
+
+# -------------------------------------------------------------
+#  Registrar operación pendiente
+# -------------------------------------------------------------
 def registrar_operacion(direction, price, result="pendiente"):
     data = cargar_stats()
 
@@ -48,28 +50,29 @@ def registrar_operacion(direction, price, result="pendiente"):
 
     data["operaciones"].append(operacion)
     data["total"] += 1
-
     guardar_stats(data)
 
-# --------------------------------------------
-# ACTUALIZAR RESULTADO
-# --------------------------------------------
-def actualizar_resultado(index, result):
+
+# -------------------------------------------------------------
+#  Actualizar resultado real (WIN / LOSS)
+# -------------------------------------------------------------
+def registrar_resultado(index, result):
     data = cargar_stats()
 
     if index < len(data["operaciones"]):
         data["operaciones"][index]["resultado"] = result
-        
+
         if result == "win":
             data["wins"] += 1
-        elif result == "loss":
+        else:
             data["loss"] += 1
-        
+
         guardar_stats(data)
 
-# --------------------------------------------
-# RESUMEN DIARIO PARA TELEGRAM
-# --------------------------------------------
+
+# -------------------------------------------------------------
+#  Resumen diario
+# -------------------------------------------------------------
 def resumen_diario(send_func):
     data = cargar_stats()
 
@@ -77,17 +80,17 @@ def resumen_diario(send_func):
         send_func("📊 Hoy no hubo operaciones.")
         return
 
-    winrate = (data["wins"] / data["total"]) * 100 if data["total"] > 0 else 0
+    winrate = (data["wins"] / data["total"]) * 100
 
     mensaje = f"""
 📅 <b>RESUMEN DIARIO — CryptoSniper FX</b>
 
-📌 Total operaciones: {data["total"]}
-🟢 Ganadas: {data["wins"]}
-🔴 Perdidas: {data["loss"]}
+📌 Total operaciones: {data['total']}
+🟢 Ganadas: {data['wins']}
+🔴 Perdidas: {data['loss']}
 📈 Winrate: {winrate:.2f}%
 
-🧠 Mantén disciplina y gestión de riesgo.
+🧠 Recuerda: disciplina > emoción.
 """
 
     send_func(mensaje)
