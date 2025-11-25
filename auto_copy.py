@@ -1,41 +1,41 @@
-# =============================================================
-#  AUTO COPY TRADER — CryptoSniper v8.3
-# =============================================================
+# ============================================
+# AUTO COPY — CryptoSniper FX (Deriv)
+# Ejecuta contratos CALL/PUT automáticamente
+# ============================================
 
-import json
-from websocket import create_connection
+from deriv_api import DerivAPI
 
 class AutoCopy:
-
     def __init__(self, token, stake=1, duration=5):
-        self.token = token
-        self.amount = stake
+        """
+        token     -> Token de Deriv
+        stake     -> Monto por operación (USD)
+        duration  -> Duración en minutos del contrato
+        """
+        self.api = DerivAPI(token)
+        self.stake = stake
         self.duration = duration
 
-    def open(self, direction, symbol):
+    # ------------------------------------
+    # Ejecutar operación en Deriv
+    # ------------------------------------
+    def ejecutar(self, symbol, direction, amount=None):
+        """
+        Ejecuta un contrato CALL/PUT.
+
+        symbol    -> Activo Deriv (ej: "frxEURUSD")
+        direction -> BUY o SELL
+        amount    -> monto opcional
+        """
+
+        monto = amount if amount is not None else self.stake
+
         try:
-            ws = create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089")
-
-            ws.send(json.dumps({"authorize": self.token}))
-            ws.recv()
-
-            contract_type = "CALL" if direction == "BUY" else "PUT"
-
-            ws.send(json.dumps({
-                "buy": 1,
-                "price": self.amount,
-                "parameters": {
-                    "amount": self.amount,
-                    "basis": "stake",
-                    "contract_type": contract_type,
-                    "currency": "USD",
-                    "duration": self.duration,
-                    "duration_unit": "m",
-                    "symbol": symbol
-                }
-            }))
-
-            print(f"[AutoCopy] 🌀 Copiando orden: {direction} {symbol}")
-
+            self.api.buy(
+                symbol,
+                direction,
+                amount=monto,
+                duration=self.duration
+            )
         except Exception as e:
-            print("[AutoCopy] Error:", e)
+            print(f"[AutoCopy] Error al ejecutar operación: {e}")
