@@ -1,0 +1,89 @@
+# ================================
+# 🔄 LOOP PRINCIPAL (ANTI-CRASH + ANTI-FREEZE + HEARTBEAT)
+# ================================
+def analizar():
+    send("🚀 CryptoSniper FX — Versión 8.3 Activada (Anti-Crash + Anti-Freeze ON)")
+
+    ultimo_resumen = ""
+    ultima_senal = datetime.now(mx)       # última señal (BUY/SELL)
+    ultima_actividad = datetime.now(mx)   # última vez que el bot analizó correctamente
+
+    while True:
+        try:
+            ahora = datetime.now(mx)
+            fecha = ahora.strftime("%Y-%m-%d")
+            hubo_senal = False
+
+            # ----------------------------------------------------
+            # 🔥 ANTI-FREEZE → Si no hay actividad en 10 minutos, reiniciar ciclo
+            # ----------------------------------------------------
+            if (ahora - ultima_actividad).seconds > 600:
+                send("⚠ Reinicio automático (ANTI-FREEZE): No hubo actividad en 10 minutos.")
+                ultima_actividad = datetime.now(mx)
+
+            # ========================================================
+            # 🔍 ANALIZAR TODOS LOS ACTIVOS
+            # ========================================================
+            for asset in SYMBOLS.keys():
+
+                # Protección contra velas corruptas
+                try:
+                    velas5m = obtener_velas(asset, "5m")
+                    if not velas5m or len(velas5m) < 12:
+                        continue
+                except:
+                    continue
+
+                # Detectar confluencias
+                try:
+                    cons = detectar_confluencias(velas5m)
+                    total = sum(cons.values())
+                    price = velas5m[-1][4]
+                except:
+                    continue
+
+                # Marcar actividad real
+                ultima_actividad = datetime.now(mx)
+
+                # Alertas
+                if total == 3:
+                    send(f"📍 Setup en formación: {asset} ({total} confluencias)")
+                if total == 4:
+                    send(f"⚠ Entrada posible: {asset} ({total} confluencias)")
+
+                # Señal >= 4
+                if total >= 4:
+                    try:
+                        msg = procesar_senal(asset, cons, price)
+                        if msg:
+                            send(msg)
+                            hubo_senal = True
+                            ultima_senal = datetime.now(mx)
+                    except Exception as e:
+                        send(f"⚠ Error al ejecutar operación: {e}")
+                        continue
+
+            # ========================================================
+            # 🕒 HEARTBEAT CADA 1 HORA
+            # ========================================================
+            if datetime.now(mx) - ultima_senal >= timedelta(hours=1):
+                send("⏳ Analizando mercado… (sin señales fuertes en la última hora)")
+                ultima_senal = datetime.now(mx)
+
+            # ========================================================
+            # 📝 RESUMEN DIARIO
+            # ========================================================
+            if ahora.hour == 22 and fecha != ultimo_resumen:
+                resumen_diario(send)
+                ultimo_resumen = fecha
+
+            # Espera entre ciclos
+            time.sleep(300)  # 5 minutos
+
+        # ================================================================
+        # 🔥 ANTI-CRASH GLOBAL → El bot NUNCA se apaga
+        # ================================================================
+        except Exception as e:
+            send(f"🔥 Auto-Recuperación completa: Error crítico detectado y reiniciado.\nError: {e}")
+            time.sleep(5)
+            continue
