@@ -1,3 +1,8 @@
+# =============================================================
+# CRYPTOSNIPER FX — v8.3 (H1 + M15 + ICT + Sesiones)
+# Scalping PRO | Forex + Step | AutoCopy + Risk Manager
+# =============================================================
+
 from keep_alive import keep_alive
 keep_alive()
 
@@ -13,6 +18,9 @@ from risk_manager import RiskManager
 from deriv_api import DerivAPI
 
 
+# ================================
+# 🔧 CONFIGURACIÓN GENERAL
+# ================================
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
 DERIV_TOKEN = "lit3a706U07EYMV"
@@ -22,6 +30,10 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 mx = pytz.timezone("America/Mexico_City")
 
+
+# ================================
+# 🔥 ACTIVOS A OPERAR
+# ================================
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
@@ -30,12 +42,20 @@ SYMBOLS = {
     "STEP1S": "1HZ100V"
 }
 
+
+# ================================
+# 📌 RISK MANAGER (cuenta chica)
+# ================================
 risk = RiskManager(
     balance_inicial=27,
     max_loss_day=5,
     max_trades_day=15
 )
 
+
+# ================================
+# 📩 ENVIAR MENSAJE TELEGRAM
+# ================================
 def send(msg):
     try:
         requests.post(API, json={
@@ -47,6 +67,9 @@ def send(msg):
         pass
 
 
+# ================================
+# 📊 OBTENER VELAS
+# ================================
 def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
     now = int(time.time())
@@ -67,37 +90,43 @@ def obtener_velas(asset, timeframe):
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 
+# ================================
+# 📌 EMA
+# ================================
 def ema(values, period):
     k = 2 / (period + 1)
-    ema_val = values[0]
+    val = values[0]
     for v in values[1:]:
-        ema_val = v * k + ema_val * (1 - k)
-    return ema_val
+        val = v * k + val * (1 - k)
+    return val
 
 
+# ================================
+# 📌 MACRO H1 + M15
+# ================================
 def tendencia_macro(asset):
-    velas_h1 = obtener_velas(asset, "1h")
-    velas_m15 = obtener_velas(asset, "15m")
+    h1 = obtener_velas(asset, "1h")
+    m15 = obtener_velas(asset, "15m")
 
-    if not velas_h1 or not velas_m15:
+    if not h1 or not m15:
         return None
 
-    closes_h1 = [x[4] for x in velas_h1[-80:]]
-    closes_m15 = [x[4] for x in velas_m15[-80:]]
+    closes_h1 = [x[4] for x in h1[-80:]]
+    closes_m15 = [x[4] for x in m15[-80:]]
 
     ema50_h1 = ema(closes_h1, 50)
     ema50_m15 = ema(closes_m15, 50)
 
-    precio_h1 = closes_h1[-1]
-    precio_m15 = closes_m15[-1]
-
-    if precio_h1 > ema50_h1 and precio_m15 > ema50_m15:
+    if closes_h1[-1] > ema50_h1 and closes_m15[-1] > ema50_m15:
         return "ALCISTA"
-    if precio_h1 < ema50_h1 and precio_m15 < ema50_m15:
+    if closes_h1[-1] < ema50_h1 and closes_m15[-1] < ema50_m15:
         return "BAJISTA"
     return "NEUTRA"
 
 
+# ================================
+# 🔍 ICT MICRO (5M)
+# ================================
 def detectar_confluencias(velas):
     ohlc = [(x[1], x[2], x[3], x[4]) for x in velas[-12:]]
     o, h, l, c = zip(*ohlc)
@@ -107,15 +136,21 @@ def detectar_confluencias(velas):
         "CHOCH": c[-1] < l[-2],
         "OrderBlock": (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]),
         "FVG": h[-2] < l[-4] or l[-2] > h[-4],
-        "Liquidez": h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1])
+        "Liquidez": h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]),
     }
 
 
+# ================================
+# ⏰ SESIONES ACTIVAS
+# ================================
 def sesion_activa():
-    hora = datetime.now(mx).hour
-    return (2 <= hora <= 10) or (7 <= hora <= 14)
+    h = datetime.now(mx).hour
+    return (2 <= h <= 10) or (7 <= h <= 14)
 
 
+# ================================
+# ✨ PROCESAR SEÑAL
+# ================================
 def procesar_senal(asset, cons, price):
     if cons["BOS"]:
         direction = "BUY"
@@ -128,7 +163,6 @@ def procesar_senal(asset, cons, price):
         return None
 
     tendencia = tendencia_macro(asset)
-
     if tendencia == "ALCISTA" and direction == "SELL":
         return None
     if tendencia == "BAJISTA" and direction == "BUY":
@@ -152,6 +186,9 @@ def procesar_senal(asset, cons, price):
     )
 
 
+# ================================
+# 🔄 LOOP PRINCIPAL
+# ================================
 def analizar():
     send("🚀 CryptoSniper FX — Versión 8.3 Activada")
 
@@ -188,6 +225,9 @@ def analizar():
         time.sleep(300)
 
 
+# ================================
+# ▶ INICIAR
+# ================================
 api = DerivAPI(DERIV_TOKEN, on_result_callback=lambda x: print("Resultado:", x))
 copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
 
