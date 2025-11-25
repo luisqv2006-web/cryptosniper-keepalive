@@ -1,55 +1,118 @@
-# =============================================================
-#  DERIV API — CryptoSniper v8.3
-# =============================================================
+# ============================================================
+# DERIV API — CryptoSniper FX
+# WebSocket PRO + Reconexión + Callback de Resultados
+# ============================================================
 
 import json
+import websocket
 import threading
-from websocket import create_connection
+import time
+
+DERIV_APP_ID = "1089"  # app_id público válido
 
 class DerivAPI:
 
     def __init__(self, token, on_result_callback=None):
         self.token = token
-        self.callback = on_result_callback
+        self.on_result_callback = on_result_callback
         self.ws = None
+        self.connected = False
 
-        threading.Thread(target=self.connect).start()
+        self._connect()
 
-    def connect(self):
+    # ==================================================================
+    # 🔌 CONEXIÓN AL WEBSOCKET
+    # ==================================================================
+    def _connect(self):
         try:
-            self.ws = create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089")
-            self._authorize()
-        except Exception as e:
-            print("[DerivAPI] Error conectando:", e)
+            self.ws = websocket.WebSocketApp(
+                f"wss://ws.binaryws.com/websockets/v3?app_id={DERIV_APP_ID}",
+                on_open=self._on_open,
+                on_message=self._on_message,
+                on_close=self._on_close,
+                on_error=self._on_error
+            )
 
-    def _authorize(self):
+            t = threading.Thread(target=self.ws.run_forever)
+            t.daemon = True
+            t.start()
+
+            time.sleep(1)
+
+        except Exception:
+            self.connected = False
+            time.sleep(2)
+            self._connect()
+
+    # ==================================================================
+    # 🔓 AUTORIZACIÓN
+    # ==================================================================
+    def _on_open(self, ws):
+        self.connected = True
+        self.send({"authorize": self.token})
+
+    # ==================================================================
+    # 📥 RESPUESTAS DEL WEBSOCKET
+    # ==================================================================
+    def _on_message(self, ws, msg):
+        data = json.loads(msg)
+
+        # Confirmación de autorización
+        if "authorize" in data:
+            return
+
+        # Resultado real del contrato
+        if "proposal_open_contract" in data:
+            try:
+                profit = data["proposal_open_contract"]["profit"]
+                if self.on_result_callback:
+                    self.on_result_callback(float(profit))
+            except:
+                pass
+
+        # Respuesta de compra
+        if "buy" in data:
+            return
+
+    # ==================================================================
+    # 🔌 MANEJO DE ERRORES Y RECONEXIONES
+    # ==================================================================
+    def _on_close(self, ws):
+        self.connected = False
+        time.sleep(2)
+        self._connect()
+
+    def _on_error(self, ws, error):
+        self.connected = False
+        time.sleep(2)
+        self._connect()
+
+    # ==================================================================
+    # 📤 ENVIAR MENSAJE AL WS
+    # ==================================================================
+    def send(self, data):
+        if not self.connected:
+            time.sleep(1)
+            return
         try:
-            self.ws.send(json.dumps({
-                "authorize": self.token
-            }))
-
-            res = json.loads(self.ws.recv())
-            if res.get("authorize"):
-                print("[DerivAPI] ✔ Token autorizado.")
-            else:
-                print("[DerivAPI] ❌ Error al autorizar.")
+            self.ws.send(json.dumps(data))
         except:
-            pass
+            self.connected = False
+            self._connect()
 
-    # =============================================================
-    #  EJECUTAR ORDEN BINARIA
-    # =============================================================
-    def buy(self, symbol, direction, amount=1, duration=5):
+    # ==================================================================
+    # 🟢 EJECUTAR COMPRA REAL
+    # ==================================================================
+    def buy(self, symbol, direction, amount, duration=5):
+        contract = "CALL" if direction == "BUY" else "PUT"
 
-        contract_type = "CALL" if direction == "BUY" else "PUT"
-
-        msg = {
-            "buy": 1,
+        payload = {
+            "buy": "1",
             "price": amount,
             "parameters": {
                 "amount": amount,
                 "basis": "stake",
-                "contract_type": contract_type,
+                "contract_type": contract,
                 "currency": "USD",
                 "duration": duration,
                 "duration_unit": "m",
@@ -57,8 +120,4 @@ class DerivAPI:
             }
         }
 
-        try:
-            self.ws.send(json.dumps(msg))
-            print(f"[DerivAPI] ▶ Orden enviada {direction} — {symbol}")
-        except Exception as e:
-            print("[DerivAPI] Error enviando operación:", e)
+        self.send(payload)
