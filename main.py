@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v8.4 ULTRA OPTIMIZADO (Render FREE)
-# H1 + M15 + ICT | Scalping PRO | AutoCopy + Risk Manager
+# CRYPTOSNIPER FX — v8.3 OPTIMIZADO (H1 + M15 + ICT + Sesiones)
+# Scalping PRO | Forex + Step | AutoCopy + Risk Manager
 # =============================================================
 
 from keep_alive import keep_alive
@@ -10,15 +10,16 @@ import time
 import requests
 import threading
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from auto_copy import AutoCopy
 from stats import registrar_operacion, resumen_diario
 from risk_manager import RiskManager
 from deriv_api import DerivAPI
 
+
 # ================================
-# 🔧 CONFIG GENERAL
+# 🔧 CONFIGURACIÓN GENERAL
 # ================================
 TOKEN = "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA"
 CHAT_ID = "-1003348348510"
@@ -26,19 +27,24 @@ DERIV_TOKEN = "lit3a706U07EYMV"
 
 FINNHUB_KEY = "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g"
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
 mx = pytz.timezone("America/Mexico_City")
 
+
 # ================================
-# 🔥 ACTIVOS PERMITIDOS
+# 🔥 ACTIVOS A OPERAR
 # ================================
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY"
+    "USD/JPY": "frxUSDJPY",
+    "STEP": "R_100",
+    "STEP1S": "1HZ100V"
 }
 
+
 # ================================
-# 📌 RISK MANAGER
+# 📌 RISK MANAGER (cuenta chica)
 # ================================
 risk = RiskManager(
     balance_inicial=27,
@@ -46,38 +52,50 @@ risk = RiskManager(
     max_trades_day=15
 )
 
+
 # ================================
-# 📩 TELEGRAM
+# 📩 ENVIAR MENSAJE TELEGRAM
 # ================================
 def send(msg):
     try:
-        requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"})
+        requests.post(API, json={
+            "chat_id": CHAT_ID,
+            "text": msg,
+            "parse_mode": "HTML"
+        }, timeout=5)
     except:
-        pass
+        print("[ERROR] No se pudo enviar mensaje a Telegram")
+
 
 # ================================
-# 🧠 CACHE H1 / M15
-# ================================
-cache = {
-    "H1": {"time": 0, "data": None},
-    "M15": {"time": 0, "data": None}
-}
-
-# ================================
-# 📊 OBTENER VELAS (OPT)
+# 📊 OBTENER VELAS
 # ================================
 def obtener_velas(asset, timeframe):
+    """Optimizado para no consumir memoria ni API de más."""
     symbol = SYMBOLS[asset]
-    resolutions = {"5m": 5, "15m": 15, "1h": 60}
-    limit = 120
+    now = int(time.time())
 
-    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resolutions[timeframe]}&count={limit}&token={FINNHUB_KEY}"
-    r = requests.get(url).json()
+    resolutions = {"5m": 5, "15m": 15, "1h": 60}
+    resol = resolutions[timeframe]
+
+    # Solo 12 horas hacia atrás → suficiente y ligero
+    desde = now - (60 * 60 * 12)
+
+    url = (
+        f"https://finnhub.io/api/v1/forex/candle?"
+        f"symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
+    )
+
+    try:
+        r = requests.get(url, timeout=5).json()
+    except:
+        return None
 
     if r.get("s") != "ok":
         return None
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
+
 
 # ================================
 # 📌 EMA
@@ -86,80 +104,83 @@ def ema(values, period):
     if len(values) < period:
         return values[-1]
     k = 2 / (period + 1)
-    e = values[0]
+    val = values[0]
     for v in values[1:]:
-        e = v * k + e * (1 - k)
-    return e
+        val = v * k + val * (1 - k)
+    return val
+
 
 # ================================
-# 📌 TENDENCIA MACRO (H1 + M15 CACHE)
+# 📌 MACRO H1 + M15
 # ================================
 def tendencia_macro(asset):
-    now = time.time()
-
-    # H1 cada 30 min
-    if now - cache["H1"]["time"] > 1800:
-        cache["H1"]["data"] = obtener_velas(asset, "1h")
-        cache["H1"]["time"] = now
-
-    # M15 cada 15 min
-    if now - cache["M15"]["time"] > 900:
-        cache["M15"]["data"] = obtener_velas(asset, "15m")
-        cache["M15"]["time"] = now
-
-    h1 = cache["H1"]["data"]
-    m15 = cache["M15"]["data"]
+    h1 = obtener_velas(asset, "1h")
+    m15 = obtener_velas(asset, "15m")
 
     if not h1 or not m15:
         return None
 
-    closes_h1 = [x[4] for x in h1]
-    closes_m15 = [x[4] for x in m15]
+    closes_h1 = [x[4] for x in h1[-80:]]
+    closes_m15 = [x[4] for x in m15[-80:]]
 
     ema50_h1 = ema(closes_h1, 50)
     ema50_m15 = ema(closes_m15, 50)
 
-    p_h1 = closes_h1[-1]
-    p_m15 = closes_m15[-1]
+    p1 = closes_h1[-1]
+    p2 = closes_m15[-1]
 
-    if p_h1 > ema50_h1 and p_m15 > ema50_m15:
+    if p1 > ema50_h1 and p2 > ema50_m15:
         return "ALCISTA"
-    if p_h1 < ema50_h1 and p_m15 < ema50_m15:
+    if p1 < ema50_h1 and p2 < ema50_m15:
         return "BAJISTA"
     return "NEUTRA"
 
+
 # ================================
-# 🔍 ICT 5M
+# 🔍 ICT MICRO (5M)
 # ================================
-def detectar_confluencias(v):
-    o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in v[-12:]])
+def detectar_confluencias(velas):
+    if len(velas) < 12:
+        return {"BOS": False, "CHOCH": False, "OrderBlock": False, "FVG": False, "Liquidez": False}
+
+    ohlc = [(x[1], x[2], x[3], x[4]) for x in velas[-12:]]
+    o, h, l, c = zip(*ohlc)
+
     return {
         "BOS": c[-1] > h[-2],
         "CHOCH": c[-1] < l[-2],
-        "OB": (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]),
-        "FVG": h[-2] < l[-4] or l[-2] > h[-4]
+        "OrderBlock": (c[-1] > o[-1] and l[-1] > l[-2]) or (c[-1] < o[-1] and h[-1] < h[-2]),
+        "FVG": h[-2] < l[-4] or l[-2] > h[-4],
+        "Liquidez": h[-1] > max(h[-6:-1]) or l[-1] < min(l[-6:-1]),
     }
 
+
 # ================================
-# ⏰ SESIONES
+# ⏰ SESIONES ACTIVAS
 # ================================
 def sesion_activa():
     h = datetime.now(mx).hour
     return (2 <= h <= 10) or (7 <= h <= 14)
 
+
 # ================================
 # ✨ PROCESAR SEÑAL
 # ================================
 def procesar_senal(asset, cons, price):
-    direction = "BUY" if cons["BOS"] else "SELL" if cons["CHOCH"] else None
-    if not direction:
+    if cons["BOS"]:
+        direction = "BUY"
+    elif cons["CHOCH"]:
+        direction = "SELL"
+    else:
         return None
 
     if not sesion_activa():
         return None
 
-    macro = tendencia_macro(asset)
-    if (macro == "ALCISTA" and direction == "SELL") or (macro == "BAJISTA" and direction == "BUY"):
+    tendencia = tendencia_macro(asset)
+    if tendencia == "ALCISTA" and direction == "SELL":
+        return None
+    if tendencia == "BAJISTA" and direction == "BUY":
         return None
 
     if not risk.puede_operar():
@@ -169,44 +190,54 @@ def procesar_senal(asset, cons, price):
     api.buy(SYMBOLS[asset], direction, amount=1, duration=5)
     registrar_operacion(direction, price, "pendiente")
 
-    return f"""
-🔥 Operación ejecutada
-📌 {asset}
-📈 {direction}
-📊 Macro: {macro}
-⏳ TF: 5M
-"""
+    return (
+        f"🔥 Operación ejecutada\n"
+        f"📌 Activo: {asset}\n"
+        f"📈 Dirección: {direction}\n"
+        f"📊 Macro: {tendencia}\n"
+        f"⏳ TF: 5M"
+    )
+
 
 # ================================
-# 🔄 LOOP PRINCIPAL (CADA 15 MIN)
+# 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 CryptoSniper FX — v8.4 OPTIMIZADO ACTIVADO")
-    last = ""
+    send("🚀 CryptoSniper FX — Versión 8.3 Optimizada Activada")
+
+    ultimo_resumen = ""
+    ultima_senal = datetime.now(mx)
 
     while True:
-        now = datetime.now(mx)
-        f = now.strftime("%Y-%m-%d")
+        ahora = datetime.now(mx)
+        fecha = ahora.strftime("%Y-%m-%d")
 
         for asset in SYMBOLS.keys():
-            v5 = obtener_velas(asset, "5m")
-            if not v5:
+            velas5m = obtener_velas(asset, "5m")
+            if not velas5m:
                 continue
 
-            cons = detectar_confluencias(v5)
+            cons = detectar_confluencias(velas5m)
             total = sum(cons.values())
-            price = v5[-1][4]
+            price = velas5m[-1][4]
 
             if total >= 4:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
+                    ultima_senal = datetime.now(mx)
 
-        if now.hour == 22 and f != last:
+        if ahora.hour == 22 and fecha != ultimo_resumen:
             resumen_diario(send)
-            last = f
+            ultimo_resumen = fecha
 
-        time.sleep(15 * 60)
+        # Notificación de vida
+        if datetime.now(mx) - ultima_senal >= timedelta(minutes=55):
+            send("🧠 El bot sigue analizando activamente el mercado…")
+            ultima_senal = datetime.now(mx)
+
+        time.sleep(300)  # 5 minutos
+
 
 # ================================
 # ▶ INICIAR
