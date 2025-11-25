@@ -69,13 +69,14 @@ cache = {
 def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
     resolutions = {"5m": 5, "15m": 15, "1h": 60}
-    limit = 120  # Súper liviano
+    limit = 120
 
     url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resolutions[timeframe]}&count={limit}&token={FINNHUB_KEY}"
     r = requests.get(url).json()
 
     if r.get("s") != "ok":
         return None
+
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 # ================================
@@ -91,7 +92,7 @@ def ema(values, period):
     return e
 
 # ================================
-# 📌 MACRO TENDENCIA (CACHE)
+# 📌 TENDENCIA MACRO (H1 + M15 CACHE)
 # ================================
 def tendencia_macro(asset):
     now = time.time()
@@ -108,6 +109,7 @@ def tendencia_macro(asset):
 
     h1 = cache["H1"]["data"]
     m15 = cache["M15"]["data"]
+
     if not h1 or not m15:
         return None
 
@@ -168,15 +170,15 @@ def procesar_senal(asset, cons, price):
     registrar_operacion(direction, price, "pendiente")
 
     return f"""
-🔥 Operación ejecutada  
-📌 {asset}  
-📈 {direction}  
-📊 Macro: {macro}  
-⏳ 5M  
+🔥 Operación ejecutada
+📌 {asset}
+📈 {direction}
+📊 Macro: {macro}
+⏳ TF: 5M
 """
 
 # ================================
-# 🔄 LOOP PRINCIPAL (55 min)
+# 🔄 LOOP PRINCIPAL (CADA 15 MIN)
 # ================================
 def analizar():
     send("🚀 CryptoSniper FX — v8.4 OPTIMIZADO ACTIVADO")
@@ -204,7 +206,7 @@ def analizar():
             resumen_diario(send)
             last = f
 
-        time.sleep(55 * 60)
+        time.sleep(15 * 60)
 
 # ================================
 # ▶ INICIAR
