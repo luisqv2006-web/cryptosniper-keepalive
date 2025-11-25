@@ -1,5 +1,4 @@
 Flask
 requests
-websocket-client
 pytz
-statistics
+websocket-client
