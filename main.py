@@ -4,7 +4,6 @@ keep_alive()
 import time
 import requests
 import threading
-import statistics
 import pytz
 from datetime import datetime, timedelta
 
@@ -23,7 +22,6 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 mx = pytz.timezone("America/Mexico_City")
 
-
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
@@ -32,13 +30,11 @@ SYMBOLS = {
     "STEP1S": "1HZ100V"
 }
 
-
 risk = RiskManager(
     balance_inicial=27,
     max_loss_day=5,
     max_trades_day=15
 )
-
 
 def send(msg):
     try:
@@ -55,18 +51,16 @@ def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
     now = int(time.time())
 
-    resolutions = {
-        "5m": 5,
-        "15m": 15,
-        "1h": 60
-    }
-
+    resolutions = {"5m": 5, "15m": 15, "1h": 60}
     resol = resolutions[timeframe]
     desde = now - (60 * 60 * 24)
 
-    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
-    r = requests.get(url).json()
+    url = (
+        f"https://finnhub.io/api/v1/forex/candle?"
+        f"symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
+    )
 
+    r = requests.get(url).json()
     if r.get("s") != "ok":
         return None
 
@@ -101,12 +95,12 @@ def tendencia_macro(asset):
         return "ALCISTA"
     if precio_h1 < ema50_h1 and precio_m15 < ema50_m15:
         return "BAJISTA"
-
     return "NEUTRA"
 
 
 def detectar_confluencias(velas):
-    o, h, l, c = zip(*[(x[1], x[2], x[3], x[4]) for x in velas[-12:]])
+    ohlc = [(x[1], x[2], x[3], x[4]) for x in velas[-12:]]
+    o, h, l, c = zip(*ohlc)
 
     return {
         "BOS": c[-1] > h[-2],
@@ -123,7 +117,6 @@ def sesion_activa():
 
 
 def procesar_senal(asset, cons, price):
-
     if cons["BOS"]:
         direction = "BUY"
     elif cons["CHOCH"]:
@@ -135,6 +128,7 @@ def procesar_senal(asset, cons, price):
         return None
 
     tendencia = tendencia_macro(asset)
+
     if tendencia == "ALCISTA" and direction == "SELL":
         return None
     if tendencia == "BAJISTA" and direction == "BUY":
@@ -142,24 +136,25 @@ def procesar_senal(asset, cons, price):
 
     if not risk.puede_operar():
         send("⚠ Límite diario alcanzado.")
-        return
+        return None
 
     symbol = SYMBOLS[asset]
     api.buy(symbol, direction, amount=1, duration=5)
 
     registrar_operacion(direction, price, "pendiente")
 
-    return f"""
-🔥 Operación ejecutada  
-📌 Activo: {asset}  
-📈 Dirección: {direction}  
-📊 Macro: {tendencia}  
-⏳ TF: 5M  
-"""
+    return (
+        f"🔥 Operación ejecutada\n"
+        f"📌 Activo: {asset}\n"
+        f"📈 Dirección: {direction}\n"
+        f"📊 Macro: {tendencia}\n"
+        f"⏳ TF: 5M"
+    )
 
 
 def analizar():
     send("🚀 CryptoSniper FX — Versión 8.3 Activada")
+
     ultimo_resumen = ""
     ultima_senal = datetime.now(mx)
 
@@ -168,7 +163,6 @@ def analizar():
         fecha = ahora.strftime("%Y-%m-%d")
 
         for asset in SYMBOLS.keys():
-
             velas5m = obtener_velas(asset, "5m")
             if not velas5m:
                 continue
@@ -176,9 +170,6 @@ def analizar():
             cons = detectar_confluencias(velas5m)
             total = sum(cons.values())
             price = velas5m[-1][4]
-
-            if total == 3:
-                send(f"📍 Setup en formación: {asset} ({total} confluencias)")
 
             if total >= 4:
                 msg = procesar_senal(asset, cons, price)
@@ -190,8 +181,8 @@ def analizar():
             resumen_diario(send)
             ultimo_resumen = fecha
 
-        if datetime.now(mx) - ultima_senal >= timedelta(hours=1):
-            send("⏳ Analizando mercado...")
+        if datetime.now(mx) - ultima_senal >= timedelta(minutes=55):
+            send("🧠 El bot sigue analizando activamente el mercado…")
             ultima_senal = datetime.now(mx)
 
         time.sleep(300)
