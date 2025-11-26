@@ -1,26 +1,34 @@
 from firebase_config import db
 from datetime import datetime
-import pytz
 
-mx = pytz.timezone("America/Mexico_City")
-
-def actualizar_estado(message):
-    doc = db.collection("bot_cache").document("status")
-    doc.set({
-        "lastUpdate": datetime.now(mx),
-        "message": message
+# ================================
+# GUARDAR OPERACIÓN EN FIREBASE
+# ================================
+def guardar_operacion(asset, direction, price, status="pendiente"):
+    db.collection("operaciones").add({
+        "activo": asset,
+        "direccion": direction,
+        "precio": price,
+        "estado": status,
+        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
-def guardar_macro(asset, tendencia):
-    doc = db.collection("bot_cache").document("macro")
-    doc.set({
-        asset: tendencia,
-        "updated": datetime.now(mx)
-    }, merge=True)
 
-def obtener_macro(asset):
-    doc = db.collection("bot_cache").document("macro").get()
-    if doc.exists:
-        data = doc.to_dict()
-        return data.get(asset)
-    return None
+# ================================
+# ACTUALIZAR RESULTADO (WIN / LOSS)
+# ================================
+def marcar_resultado(doc_id, resultado, profit):
+    db.collection("operaciones").document(doc_id).update({
+        "estado": resultado,
+        "ganancia": profit
+    })
+
+
+# ================================
+# GUARDAR STATUS DEL BOT
+# ================================
+def guardar_status_bot(status):
+    db.collection("status").document("bot").set({
+        "estado": status,
+        "hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
