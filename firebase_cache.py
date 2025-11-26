@@ -1,34 +1,37 @@
 from firebase_config import db
 from datetime import datetime
 
-# ================================
-# GUARDAR OPERACIÓN EN FIREBASE
-# ================================
-def guardar_operacion(asset, direction, price, status="pendiente"):
-    db.collection("operaciones").add({
-        "activo": asset,
-        "direccion": direction,
-        "precio": price,
-        "estado": status,
-        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
+
+def actualizar_estado(msg="activo"):
+    try:
+        db.collection("bot_cache").document("status").set({
+            "message": msg,
+            "lastUpdate": datetime.utcnow()
+        }, merge=True)
+        return True
+    except Exception as e:
+        print("Error actualizar_estado:", e)
+        return False
 
 
-# ================================
-# ACTUALIZAR RESULTADO (WIN / LOSS)
-# ================================
-def marcar_resultado(doc_id, resultado, profit):
-    db.collection("operaciones").document(doc_id).update({
-        "estado": resultado,
-        "ganancia": profit
-    })
+def guardar_macro(data):
+    try:
+        db.collection("bot_cache").document("macro").set({
+            "data": data,
+            "timestamp": datetime.utcnow()
+        })
+        return True
+    except Exception as e:
+        print("Error guardar_macro:", e)
+        return False
 
 
-# ================================
-# GUARDAR STATUS DEL BOT
-# ================================
-def guardar_status_bot(status):
-    db.collection("status").document("bot").set({
-        "estado": status,
-        "hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
+def obtener_macro():
+    try:
+        doc = db.collection("bot_cache").document("macro").get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        print("Error obtener_macro:", e)
+        return None
