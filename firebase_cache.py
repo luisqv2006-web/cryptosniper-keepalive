@@ -1,24 +1,26 @@
-# ================================
-# 🔥 FIREBASE CACHE SYSTEM
-# ================================
-
 from firebase_config import db
-import time
+from datetime import datetime
+import pytz
 
-COLLECTION = "bot_cache"
-DOC = "status"
+mx = pytz.timezone("America/Mexico_City")
 
-def save_cache(data: dict):
-    """Guarda datos del bot en Firestore."""
-    data["timestamp"] = time.time()
-    db.collection(COLLECTION).document(DOC).set(data)
+def actualizar_estado(message):
+    doc = db.collection("bot_cache").document("status")
+    doc.set({
+        "lastUpdate": datetime.now(mx),
+        "message": message
+    })
 
-def load_cache():
-    """Lee la memoria del bot desde Firestore."""
-    doc = db.collection(COLLECTION).document(DOC).get()
+def guardar_macro(asset, tendencia):
+    doc = db.collection("bot_cache").document("macro")
+    doc.set({
+        asset: tendencia,
+        "updated": datetime.now(mx)
+    }, merge=True)
+
+def obtener_macro(asset):
+    doc = db.collection("bot_cache").document("macro").get()
     if doc.exists:
-        return doc.to_dict()
-    return {}
-
-def update_field(key, value):
-    db.collection(COLLECTION).document(DOC).update({key: value})
+        data = doc.to_dict()
+        return data.get(asset)
+    return None
