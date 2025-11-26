@@ -1,4 +1,4 @@
-Flask
+flask
 requests
 pytz
 websocket-client
