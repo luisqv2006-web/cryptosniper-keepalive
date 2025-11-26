@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v9.0 FINAL (PREALERTA + EJECUCIÓN)
+# CRYPTOSNIPER FX — v9.1 PRO (FINO + ACTIVO)
 # =============================================================
 
 from keep_alive import keep_alive
@@ -22,10 +22,10 @@ from firebase_cache import actualizar_estado, guardar_macro
 # ================================
 # 🔐 VARIABLES DE ENTORNO
 # ================================
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003348348510")
-DERIV_TOKEN = os.getenv("DERIV_TOKEN", "lit3a706U07EYMV")
-FINNHUB_KEY = os.getenv("FINNHUB_KEY", "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+DERIV_TOKEN = os.getenv("DERIV_TOKEN")
+FINNHUB_KEY = os.getenv("FINNHUB_KEY")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
@@ -61,8 +61,8 @@ def send(msg):
             "text": msg,
             "parse_mode": "HTML"
         })
-    except Exception as e:
-        print(f"[Error Telegram] {e}")
+    except:
+        pass
 
 
 # ================================
@@ -100,7 +100,7 @@ def ema(values, period):
 
 
 # ================================
-# 📌 TENDENCIA MACRO H1 + M15
+# 📌 TENDENCIA MACRO
 # ================================
 def tendencia_macro(asset):
     h1 = obtener_velas(asset, "1h")
@@ -123,7 +123,7 @@ def tendencia_macro(asset):
 
 
 # ================================
-# 🔍 ICT MICRO (5M)
+# 🔍 ICT MICRO
 # ================================
 def detectar_confluencias(velas):
     ohlc = [(x[1], x[2], x[3], x[4]) for x in velas[-12:]]
@@ -139,7 +139,7 @@ def detectar_confluencias(velas):
 
 
 # ================================
-# ⏰ SESIONES
+# ⏰ SESIONES ACTIVAS
 # ================================
 def sesion_activa():
     h = datetime.now(mx).hour
@@ -156,9 +156,10 @@ def procesar_senal(asset, cons, price):
         return None
 
     tendencia = tendencia_macro(asset)
-    if tendencia == "ALCISTA" and direction == "SELL":
+
+    if tendencia == "ALCISTA" and direction == "SELL" and not cons["CHOCH"]:
         return None
-    if tendencia == "BAJISTA" and direction == "BUY":
+    if tendencia == "BAJISTA" and direction == "BUY" and not cons["CHOCH"]:
         return None
 
     if not risk.puede_operar():
@@ -189,15 +190,12 @@ def procesar_senal(asset, cons, price):
 # 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 CryptoSniper FX iniciado")
-    actualizar_estado("Bot iniciado correctamente ✅")
+    send("🚀 CryptoSniper FX PRO iniciado")
+    actualizar_estado("Bot activo ✅")
 
     ultima_senal = datetime.now(mx)
 
     while True:
-        ahora = datetime.now(mx)
-        fecha = ahora.strftime("%Y-%m-%d")
-
         for asset in SYMBOLS.keys():
 
             velas5m = obtener_velas(asset, "5m")
@@ -208,29 +206,29 @@ def analizar():
             total = sum(cons.values())
             price = velas5m[-1][4]
 
-            # 🟡 PRE-ALERTA
-            if total == 3:
+            # 🟡 PRE-ALERTA FINA
+            if total >= 3 and cons["Liquidez"] and cons["OrderBlock"]:
                 send(
                     f"🟡 <b>PRE-ALERTA</b>\n"
                     f"📌 {asset}\n"
-                    f"🧩 3 confluencias detectadas\n"
-                    f"⏳ Posible entrada próxima"
+                    f"🧩 3 Confluencias + Liquidez\n"
+                    f"⏳ Preparando entrada"
                 )
 
-            # 🔴 EJECUCIÓN
-            if total >= 4:
+            # 🔴 EJECUCIÓN PROFESIONAL
+            if total >= 4 and cons["Liquidez"] and cons["OrderBlock"] and cons["BOS"]:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
                     ultima_senal = datetime.now(mx)
 
-        # 🧠 MENSAJE DE VIDA CADA 55 MIN
-        if datetime.now(mx) - ultima_senal >= timedelta(minutes=55):
-            send("🧠 El bot sigue analizando el mercado…")
-            actualizar_estado("Activo y analizando ✅")
+        # 💓 MENSAJE DE VIDA
+        if datetime.now(mx) - ultima_senal >= timedelta(minutes=30):
+            send("🧠 Bot activo y analizando…")
+            actualizar_estado("Analizando mercado ✅")
             ultima_senal = datetime.now(mx)
 
-        time.sleep(300)
+        time.sleep(60)  # ✅ ANALIZA CADA 1 MINUTO
 
 
 # ================================
