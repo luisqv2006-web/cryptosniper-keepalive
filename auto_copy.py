@@ -1,12 +1,8 @@
-# =============================================================
-# AUTO COPY — Optimizado
-# =============================================================
+import time
+from deriv_api import DerivAPI
 
 class AutoCopy:
     def __init__(self, token, stake=1, duration=5):
-        self.token = token
+        self.api = DerivAPI(token)
         self.stake = stake
         self.duration = duration
-
-    def ejecutar(self, symbol, direction, amount=None):
-        pass  # ya no se usa porque main.py usa DerivAPI.buy()
