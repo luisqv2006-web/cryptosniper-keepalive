@@ -1,10 +1,8 @@
-import requests
-import os
+class AutoCopy:
+    def __init__(self, token, stake=1, duration=5):
+        self.token = token
+        self.stake = stake
+        self.duration = duration
 
-DERIV_TOKEN = os.getenv("DERIV_TOKEN")
-
-def ejecutar_operacion(par, direccion):
-    print(f"🤖 Operando en DERIV → {par} | {direccion}")
-
-    # Aquí después conectamos la orden real
-    return True
+    def ejecutar(self, symbol, direction):
+        print(f"[AUTOCOPY] Ejecutando {direction} en {symbol} con ${self.stake} por {self.duration}m")
