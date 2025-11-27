@@ -4,3 +4,4 @@ pytz
 websocket-client
 firebase-admin
 google-cloud-firestore
+gunicorn
