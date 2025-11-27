@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v10.0 PRO REAL (SEÑALES + AUTOTRADING)
+# CRYPTOSNIPER FX — v10.1 PRO REAL (BINARIAS 1M GATILLO + 5M CONTEXTO)
 # =============================================================
 
 from keep_alive import keep_alive
@@ -9,7 +9,7 @@ import time
 import requests
 import threading
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 from auto_copy import AutoCopy
@@ -22,10 +22,10 @@ from firebase_cache import actualizar_estado, guardar_macro
 # ================================
 # 🔐 VARIABLES DE ENTORNO
 # ================================
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003348348510")
-DERIV_TOKEN = os.getenv("DERIV_TOKEN", "lit3a706U07EYMV")
-FINNHUB_KEY = os.getenv("FINNHUB_KEY", "d4d2n71r01qt1lahgi60d4d2n71r01qt1lahgi6g")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+DERIV_TOKEN = os.getenv("DERIV_TOKEN")
+FINNHUB_KEY = os.getenv("FINNHUB_KEY")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
@@ -81,7 +81,7 @@ def on_trade_result(result):
 
 
 # ================================
-# 📊 OBTENER VELAS
+# 📊 OBTENER VELAS 5M (CONTEXTO)
 # ================================
 def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
@@ -100,7 +100,27 @@ def obtener_velas(asset, timeframe):
     if r.get("s") != "ok":
         return None
 
-    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))  # t,o,h,l,c
+    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
+
+
+# ================================
+# 📊 OBTENER VELAS 1M (GATILLO)
+# ================================
+def obtener_velas_1m(asset):
+    symbol = SYMBOLS[asset]
+    now = int(time.time())
+    desde = now - (60 * 60)
+
+    url = (
+        f"https://finnhub.io/api/v1/forex/candle?"
+        f"symbol={symbol}&resolution=1&from={desde}&to={now}&token={FINNHUB_KEY}"
+    )
+
+    r = requests.get(url).json()
+    if r.get("s") != "ok":
+        return None
+
+    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 
 # ================================
@@ -138,18 +158,22 @@ def tendencia_macro(asset):
 
 
 # ================================
-# 🔍 ICT MICRO
+# 🔍 CONTEXTO 5M + GATILLO 1M (BINARIAS)
 # ================================
-def detectar_confluencias(velas):
-    ohlc = [(x[1], x[2], x[3], x[4]) for x in velas[-12:]]
-    o, h, l, c = zip(*ohlc)
+def detectar_confluencias(velas_5m, velas_1m):
+    ohlc_5m = [(x[1], x[2], x[3], x[4]) for x in velas_5m[-10:]]
+    ohlc_1m = [(x[1], x[2], x[3], x[4]) for x in velas_1m[-6:]]
+
+    o5, h5, l5, c5 = zip(*ohlc_5m)
+    o1, h1, l1, c1 = zip(*ohlc_1m)
+
+    contexto = (c5[-1] > h5[-2]) or (c5[-1] < l5[-2])
+    vela_fuerte = abs(c1[-1] - o1[-1]) > (h1[-1] - l1[-1]) * 0.6
+    ruptura = (c1[-1] > h1[-2]) or (c1[-1] < l1[-2])
 
     return {
-        "BOS": c[-1] > h[-2],
-        "CHOCH": c[-1] < l[-2],
-        "OrderBlock": True,
-        "FVG": True,
-        "Liquidez": True,
+        "CONTEXTO": contexto,
+        "GATILLO": vela_fuerte and ruptura
     }
 
 
@@ -165,7 +189,7 @@ def sesion_activa():
 # ✨ PROCESAR EJECUCIÓN
 # ================================
 def procesar_senal(asset, cons, price):
-    direction = "BUY" if cons["BOS"] else "SELL"
+    direction = "BUY" if cons["GATILLO"] else "SELL"
 
     if not sesion_activa():
         return None
@@ -177,7 +201,7 @@ def procesar_senal(asset, cons, price):
         return None
 
     if not risk.puede_operar():
-        send("🛑 <b>Bot BLOQUEADO por límite de riesgo</b>")
+        send("🛑 <b>Bot BLOQUEADO por riesgo</b>")
         actualizar_estado("Bloqueado por riesgo ❌")
         return None
 
@@ -203,35 +227,36 @@ def procesar_senal(asset, cons, price):
 
 
 # ================================
-# 🔄 LOOP PRINCIPAL (CADA 1 MINUTO)
+# 🔄 LOOP PRINCIPAL (ESCANEO 1 MINUTO)
 # ================================
 def analizar():
-    send("🚀 <b>CryptoSniper FX PRO REAL ACTIVADO</b>")
+    send("🚀 <b>CryptoSniper FX PRO BINARIAS ACTIVADO</b>")
     actualizar_estado("Activo en REAL ✅")
+
+    ultima_senal = datetime.now(mx)
 
     while True:
         for asset in SYMBOLS.keys():
             velas5m = obtener_velas(asset, "5m")
-            if not velas5m:
+            velas1m = obtener_velas_1m(asset)
+
+            if not velas5m or not velas1m:
                 continue
 
-            cons = detectar_confluencias(velas5m)
-            total = sum(cons.values())
-            price = velas5m[-1][4]
+            cons = detectar_confluencias(velas5m, velas1m)
+            price = velas1m[-1][4]
 
-            if total == 3:
-                send(
-                    f"🟡 <b>PRE-ALERTA</b>\n"
-                    f"📌 {asset}\n"
-                    f"🧩 3 confluencias detectadas"
-                )
-
-            if total >= 4:
+            if cons["CONTEXTO"] and cons["GATILLO"]:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
+                    ultima_senal = datetime.now(mx)
 
-        # ✅ AHORA ANALIZA CADA 1 MINUTO
+        if datetime.now(mx) - ultima_senal >= timedelta(minutes=30):
+            send("🧠 Bot activo y escaneando mercado…")
+            actualizar_estado("Activo y analizando ✅")
+            ultima_senal = datetime.now(mx)
+
         time.sleep(60)
 
 
