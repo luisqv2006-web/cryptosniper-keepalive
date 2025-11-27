@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v10.1 PRO REAL (BINARIAS 1M GATILLO + 5M CONTEXTO)
+# CRYPTOSNIPER FX — v10.2 PRO REAL (BINARIAS 1M + CONTEXTO 5M + XAUUSD)
 # =============================================================
 
 from keep_alive import keep_alive
@@ -32,13 +32,14 @@ mx = pytz.timezone("America/Mexico_City")
 
 
 # ================================
-# 🔥 ACTIVOS BINARIAS (AUD ELIMINADO + ORO AGREGADO)
+# 🔥 PARES BINARIAS (AUD FUERA / ORO DENTRO)
 # ================================
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
     "USD/JPY": "frxUSDJPY",
-    "XAU/USD": "frxXAUUSD"   # ✅ ORO AGREGADO
+    "USD/CAD": "frxUSDCAD",
+    "XAU/USD": "frxXAUUSD"
 }
 
 
@@ -61,13 +62,13 @@ def send(msg):
             "chat_id": CHAT_ID,
             "text": msg,
             "parse_mode": "HTML"
-        }, timeout=10)
+        })
     except:
         pass
 
 
 # ================================
-# 📊 RESULTADOS DESDE DERIV
+# 📊 RESULTADOS DERIV
 # ================================
 def on_trade_result(result):
     if result == "WIN":
@@ -80,7 +81,7 @@ def on_trade_result(result):
 
 
 # ================================
-# 📊 OBTENER VELAS
+# 📊 VELAS CONTEXTO 5M
 # ================================
 def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
@@ -88,12 +89,9 @@ def obtener_velas(asset, timeframe):
 
     resolutions = {"5m": 5, "15m": 15, "1h": 60}
     resol = resolutions[timeframe]
-    desde = now - (60 * 60 * 24)
+    desde = now - 86400
 
-    url = (
-        f"https://finnhub.io/api/v1/forex/candle?"
-        f"symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
-    )
+    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
 
     r = requests.get(url).json()
     if r.get("s") != "ok":
@@ -102,15 +100,15 @@ def obtener_velas(asset, timeframe):
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 
+# ================================
+# 📊 VELAS GATILLO 1M
+# ================================
 def obtener_velas_1m(asset):
     symbol = SYMBOLS[asset]
     now = int(time.time())
-    desde = now - (60 * 60)
+    desde = now - 3600
 
-    url = (
-        f"https://finnhub.io/api/v1/forex/candle?"
-        f"symbol={symbol}&resolution=1&from={desde}&to={now}&token={FINNHUB_KEY}"
-    )
+    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=1&from={desde}&to={now}&token={FINNHUB_KEY}"
 
     r = requests.get(url).json()
     if r.get("s") != "ok":
@@ -154,23 +152,17 @@ def tendencia_macro(asset):
 
 
 # ================================
-# 🔍 CONTEXTO + GATILLO
+# 🔍 CONTEXTO 5M + GATILLO 1M
 # ================================
 def detectar_confluencias(velas_5m, velas_1m):
-    ohlc_5m = [(x[1], x[2], x[3], x[4]) for x in velas_5m[-10:]]
-    ohlc_1m = [(x[1], x[2], x[3], x[4]) for x in velas_1m[-6:]]
-
-    o5, h5, l5, c5 = zip(*ohlc_5m)
-    o1, h1, l1, c1 = zip(*ohlc_1m)
+    o5, h5, l5, c5 = zip(*[(x[1], x[2], x[3], x[4]) for x in velas_5m[-10:]])
+    o1, h1, l1, c1 = zip(*[(x[1], x[2], x[3], x[4]) for x in velas_1m[-6:]])
 
     contexto = (c5[-1] > h5[-2]) or (c5[-1] < l5[-2])
     vela_fuerte = abs(c1[-1] - o1[-1]) > (h1[-1] - l1[-1]) * 0.6
     ruptura = (c1[-1] > h1[-2]) or (c1[-1] < l1[-2])
 
-    return {
-        "CONTEXTO": contexto,
-        "GATILLO": vela_fuerte and ruptura
-    }
+    return {"CONTEXTO": contexto, "GATILLO": vela_fuerte and ruptura}
 
 
 # ================================
@@ -182,29 +174,27 @@ def sesion_activa():
 
 
 # ================================
-# ✨ PROCESAR SEÑAL
+# 🚀 EJECUCIÓN REAL
 # ================================
 def procesar_senal(asset, cons, price):
-
-    direction = "CALL" if price > 0 else "PUT"  # ✅ BINARIAS REALES
+    direction = "BUY" if cons["GATILLO"] else "SELL"
 
     if not sesion_activa():
         return None
 
     tendencia = tendencia_macro(asset)
-    if tendencia == "ALCISTA" and direction == "PUT":
+    if tendencia == "ALCISTA" and direction == "SELL":
         return None
-    if tendencia == "BAJISTA" and direction == "CALL":
+    if tendencia == "BAJISTA" and direction == "BUY":
         return None
 
     if not risk.puede_operar():
-        send("🛑 <b>Bot BLOQUEADO por riesgo</b>")
+        send("🛑 <b>BOT BLOQUEADO POR RIESGO</b>")
         actualizar_estado("Bloqueado por riesgo ❌")
         return None
 
     symbol = SYMBOLS[asset]
-
-    api.buy(symbol, direction, amount=1, duration=5)
+    api.buy(symbol, direction, amount=1, duration=1)
     risk.registrar_trade()
 
     guardar_macro({
@@ -214,53 +204,39 @@ def procesar_senal(asset, cons, price):
         "hora": str(datetime.now(mx))
     })
 
-    return (
-        f"🔴 <b>EJECUCIÓN REAL</b>\n"
-        f"📌 {asset}\n"
-        f"📈 {direction}\n"
-        f"💰 Precio: {price}\n"
-        f"🧠 Macro: {tendencia}"
-    )
+    return f"🔴 <b>EJECUCIÓN REAL</b>\n📌 {asset}\n📈 {direction}\n💰 {price}\n🧠 {tendencia}"
 
 
 # ================================
 # 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 <b>CryptoSniper FX PRO BINARIAS ACTIVADO</b>")
-    actualizar_estado("Activo en REAL ✅")
-
-    ultima_senal = datetime.now(mx)
+    send("🚀 <b>CryptoSniper FX BINARIAS ACTIVADO</b>")
+    actualizar_estado("Activo ✅")
 
     while True:
         for asset in SYMBOLS.keys():
-            velas5m = obtener_velas(asset, "5m")
-            velas1m = obtener_velas_1m(asset)
+            v5 = obtener_velas(asset, "5m")
+            v1 = obtener_velas_1m(asset)
 
-            if not velas5m or not velas1m:
+            if not v5 or not v1:
                 continue
 
-            cons = detectar_confluencias(velas5m, velas1m)
-            price = velas1m[-1][4]
+            cons = detectar_confluencias(v5, v1)
+            price = v1[-1][4]
 
             if cons["CONTEXTO"] and cons["GATILLO"]:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
-                    ultima_senal = datetime.now(mx)
-
-        if datetime.now(mx) - ultima_senal >= timedelta(minutes=30):
-            send("🧠 Bot activo y escaneando mercado…")
-            actualizar_estado("Activo y analizando ✅")
-            ultima_senal = datetime.now(mx)
 
         time.sleep(60)
 
 
 # ================================
-# ▶ INICIAR
+# ▶ INICIO
 # ================================
 api = DerivAPI(DERIV_TOKEN, on_trade_result)
-copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
+copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
 
 threading.Thread(target=analizar).start()
