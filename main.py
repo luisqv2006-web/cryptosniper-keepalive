@@ -32,14 +32,13 @@ mx = pytz.timezone("America/Mexico_City")
 
 
 # ================================
-# 🔥 PARES FOREX POPULARES
+# 🔥 ACTIVOS BINARIAS (AUD ELIMINADO + ORO AGREGADO)
 # ================================
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
     "USD/JPY": "frxUSDJPY",
-    "AUD/USD": "frxAUDUSD",
-    "USD/CAD": "frxUSDCAD"
+    "XAU/USD": "frxXAUUSD"   # ✅ ORO AGREGADO
 }
 
 
@@ -62,7 +61,7 @@ def send(msg):
             "chat_id": CHAT_ID,
             "text": msg,
             "parse_mode": "HTML"
-        })
+        }, timeout=10)
     except:
         pass
 
@@ -81,7 +80,7 @@ def on_trade_result(result):
 
 
 # ================================
-# 📊 OBTENER VELAS 5M (CONTEXTO)
+# 📊 OBTENER VELAS
 # ================================
 def obtener_velas(asset, timeframe):
     symbol = SYMBOLS[asset]
@@ -103,9 +102,6 @@ def obtener_velas(asset, timeframe):
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
 
 
-# ================================
-# 📊 OBTENER VELAS 1M (GATILLO)
-# ================================
 def obtener_velas_1m(asset):
     symbol = SYMBOLS[asset]
     now = int(time.time())
@@ -158,7 +154,7 @@ def tendencia_macro(asset):
 
 
 # ================================
-# 🔍 CONTEXTO 5M + GATILLO 1M (BINARIAS)
+# 🔍 CONTEXTO + GATILLO
 # ================================
 def detectar_confluencias(velas_5m, velas_1m):
     ohlc_5m = [(x[1], x[2], x[3], x[4]) for x in velas_5m[-10:]]
@@ -186,18 +182,19 @@ def sesion_activa():
 
 
 # ================================
-# ✨ PROCESAR EJECUCIÓN
+# ✨ PROCESAR SEÑAL
 # ================================
 def procesar_senal(asset, cons, price):
-    direction = "BUY" if cons["GATILLO"] else "SELL"
+
+    direction = "CALL" if price > 0 else "PUT"  # ✅ BINARIAS REALES
 
     if not sesion_activa():
         return None
 
     tendencia = tendencia_macro(asset)
-    if tendencia == "ALCISTA" and direction == "SELL":
+    if tendencia == "ALCISTA" and direction == "PUT":
         return None
-    if tendencia == "BAJISTA" and direction == "BUY":
+    if tendencia == "BAJISTA" and direction == "CALL":
         return None
 
     if not risk.puede_operar():
@@ -227,7 +224,7 @@ def procesar_senal(asset, cons, price):
 
 
 # ================================
-# 🔄 LOOP PRINCIPAL (ESCANEO 1 MINUTO)
+# 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
     send("🚀 <b>CryptoSniper FX PRO BINARIAS ACTIVADO</b>")
