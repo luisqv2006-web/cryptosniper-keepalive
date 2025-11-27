@@ -9,7 +9,7 @@ import time
 import requests
 import threading
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 
 from auto_copy import AutoCopy
@@ -100,7 +100,7 @@ def obtener_velas(asset, timeframe):
     if r.get("s") != "ok":
         return None
 
-    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"])) # t,o,h,l,c
+    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))  # t,o,h,l,c
 
 
 # ================================
@@ -203,13 +203,11 @@ def procesar_senal(asset, cons, price):
 
 
 # ================================
-# 🔄 LOOP PRINCIPAL
+# 🔄 LOOP PRINCIPAL (CADA 1 MINUTO)
 # ================================
 def analizar():
     send("🚀 <b>CryptoSniper FX PRO REAL ACTIVADO</b>")
     actualizar_estado("Activo en REAL ✅")
-
-    ultima_senal = datetime.now(mx)
 
     while True:
         for asset in SYMBOLS.keys():
@@ -232,14 +230,9 @@ def analizar():
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
-                    ultima_senal = datetime.now(mx)
 
-        if datetime.now(mx) - ultima_senal >= timedelta(minutes=55):
-            send("🧠 Bot activo y monitoreando mercado…")
-            actualizar_estado("Activo y analizando ✅")
-            ultima_senal = datetime.now(mx)
-
-        time.sleep(300)
+        # ✅ AHORA ANALIZA CADA 1 MINUTO
+        time.sleep(60)
 
 
 # ================================
