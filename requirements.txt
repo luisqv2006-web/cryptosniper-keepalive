@@ -1,4 +1,7 @@
+flask
 requests
 pytz
+websocket-client
 firebase-admin
-flask
+google-cloud-firestore
+gunicorn
