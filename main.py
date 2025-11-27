@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v9.0 FINAL (PREALERTA + EJECUCIÓN)
+# CRYPTOSNIPER FX — v10.0 PRO REAL (SEÑALES + AUTOTRADING)
 # =============================================================
 
 from keep_alive import keep_alive
@@ -13,14 +13,14 @@ from datetime import datetime, timedelta
 import os
 
 from auto_copy import AutoCopy
-from stats import registrar_operacion, resumen_diario
+from stats import registrar_operacion
 from risk_manager import RiskManager
 from deriv_api import DerivAPI
 from firebase_cache import actualizar_estado, guardar_macro
 
 
 # ================================
-# 🔐 VARIABLES DE ENTORNO (SEGURAS)
+# 🔐 VARIABLES DE ENTORNO
 # ================================
 TOKEN = os.getenv("TELEGRAM_TOKEN", "8588736688:AAF_mBkQUJIDXqAKBIzgDvsEGNJuqXJHNxA")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003348348510")
@@ -32,12 +32,14 @@ mx = pytz.timezone("America/Mexico_City")
 
 
 # ================================
-# 🔥 ACTIVOS
+# 🔥 PARES FOREX POPULARES
 # ================================
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
     "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY"
+    "USD/JPY": "frxUSDJPY",
+    "AUD/USD": "frxAUDUSD",
+    "USD/CAD": "frxUSDCAD"
 }
 
 
@@ -66,6 +68,19 @@ def send(msg):
 
 
 # ================================
+# 📊 RESULTADOS DESDE DERIV
+# ================================
+def on_trade_result(result):
+    if result == "WIN":
+        send("✅ <b>WIN confirmado</b>")
+    else:
+        send("❌ <b>LOSS registrado</b>")
+        risk.registrar_perdida()
+
+    registrar_operacion("AUTO", 0, result)
+
+
+# ================================
 # 📊 OBTENER VELAS
 # ================================
 def obtener_velas(asset, timeframe):
@@ -85,7 +100,7 @@ def obtener_velas(asset, timeframe):
     if r.get("s") != "ok":
         return None
 
-    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"]))
+    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"])) # t,o,h,l,c
 
 
 # ================================
@@ -100,7 +115,7 @@ def ema(values, period):
 
 
 # ================================
-# 📌 TENDENCIA MACRO (H1 + M15)
+# 📌 TENDENCIA MACRO
 # ================================
 def tendencia_macro(asset):
     h1 = obtener_velas(asset, "1h")
@@ -123,7 +138,7 @@ def tendencia_macro(asset):
 
 
 # ================================
-# 🔍 ICT MICRO (5M)
+# 🔍 ICT MICRO
 # ================================
 def detectar_confluencias(velas):
     ohlc = [(x[1], x[2], x[3], x[4]) for x in velas[-12:]]
@@ -162,12 +177,14 @@ def procesar_senal(asset, cons, price):
         return None
 
     if not risk.puede_operar():
-        send("⚠ Límite diario alcanzado.")
+        send("🛑 <b>Bot BLOQUEADO por límite de riesgo</b>")
+        actualizar_estado("Bloqueado por riesgo ❌")
         return None
 
     symbol = SYMBOLS[asset]
+
     api.buy(symbol, direction, amount=1, duration=5)
-    registrar_operacion(direction, price, "pendiente")
+    risk.registrar_trade()
 
     guardar_macro({
         "activo": asset,
@@ -177,7 +194,7 @@ def procesar_senal(asset, cons, price):
     })
 
     return (
-        f"🔴 <b>EJECUCIÓN CONFIRMADA</b>\n"
+        f"🔴 <b>EJECUCIÓN REAL</b>\n"
         f"📌 {asset}\n"
         f"📈 {direction}\n"
         f"💰 Precio: {price}\n"
@@ -189,14 +206,13 @@ def procesar_senal(asset, cons, price):
 # 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("🚀 CryptoSniper FX iniciado")
-    actualizar_estado("Bot iniciado correctamente ✅")
+    send("🚀 <b>CryptoSniper FX PRO REAL ACTIVADO</b>")
+    actualizar_estado("Activo en REAL ✅")
 
     ultima_senal = datetime.now(mx)
 
     while True:
         for asset in SYMBOLS.keys():
-
             velas5m = obtener_velas(asset, "5m")
             if not velas5m:
                 continue
@@ -205,35 +221,31 @@ def analizar():
             total = sum(cons.values())
             price = velas5m[-1][4]
 
-            # 🟡 PRE-ALERTA
             if total == 3:
                 send(
                     f"🟡 <b>PRE-ALERTA</b>\n"
                     f"📌 {asset}\n"
-                    f"🧩 3 confluencias detectadas\n"
-                    f"⏳ Posible entrada próxima"
+                    f"🧩 3 confluencias detectadas"
                 )
 
-            # 🔴 EJECUCIÓN
             if total >= 4:
                 msg = procesar_senal(asset, cons, price)
                 if msg:
                     send(msg)
                     ultima_senal = datetime.now(mx)
 
-        # 🧠 VIDA CADA 55 MIN
         if datetime.now(mx) - ultima_senal >= timedelta(minutes=55):
-            send("🧠 El bot sigue analizando el mercado…")
+            send("🧠 Bot activo y monitoreando mercado…")
             actualizar_estado("Activo y analizando ✅")
             ultima_senal = datetime.now(mx)
 
-        time.sleep(300)  # 5 minutos
+        time.sleep(300)
 
 
 # ================================
 # ▶ INICIAR
 # ================================
-api = DerivAPI(DERIV_TOKEN)
+api = DerivAPI(DERIV_TOKEN, on_trade_result)
 copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=5)
 
 threading.Thread(target=analizar).start()
