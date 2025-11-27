@@ -1,8 +1,10 @@
-import time
-from deriv_api import DerivAPI
+import requests
+import os
 
-class AutoCopy:
-    def __init__(self, token, stake=1, duration=5):
-        self.api = DerivAPI(token)
-        self.stake = stake
-        self.duration = duration
+DERIV_TOKEN = os.getenv("DERIV_TOKEN")
+
+def ejecutar_operacion(par, direccion):
+    print(f"🤖 Operando en DERIV → {par} | {direccion}")
+
+    # Aquí después conectamos la orden real
+    return True
