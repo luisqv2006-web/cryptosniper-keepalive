@@ -1,5 +1,6 @@
 # =============================================================
 # CRYPTOSNIPER FX — v11.0 SEMI-INSTITUCIONAL (BINARIAS 1M + 5M + ORO)
+# ✅ LIMPIO PARA RENDER — FLASK SOLO EN keep_alive.py
 # =============================================================
 
 from keep_alive import keep_alive
@@ -18,7 +19,6 @@ from risk_manager import RiskManager
 from deriv_api import DerivAPI
 from firebase_cache import actualizar_estado, guardar_macro
 
-
 # ================================
 # 🔐 VARIABLES DE ENTORNO
 # ================================
@@ -30,9 +30,8 @@ FINNHUB_KEY = os.getenv("FINNHUB_KEY")
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
-
 # ================================
-# 🔥 ACTIVOS SEMI-INSTITUCIONALES
+# 🔥 ACTIVOS
 # ================================
 SYMBOLS = {
     "EUR/USD": "frxEURUSD",
@@ -41,7 +40,6 @@ SYMBOLS = {
     "USD/CAD": "frxUSDCAD",
     "XAU/USD": "frxXAUUSD"
 }
-
 
 # ================================
 # 📌 RISK MANAGER
@@ -52,7 +50,6 @@ risk = RiskManager(
     max_trades_day=15
 )
 
-
 # ================================
 # 📩 TELEGRAM
 # ================================
@@ -62,10 +59,9 @@ def send(msg):
             "chat_id": CHAT_ID,
             "text": msg,
             "parse_mode": "HTML"
-        })
+        }, timeout=10)
     except:
         pass
-
 
 # ================================
 # 📊 RESULTADOS DERIV
@@ -79,7 +75,6 @@ def on_trade_result(result):
         risk.registrar_perdida()
 
     registrar_operacion("AUTO", 0, result)
-
 
 # ================================
 # 📊 VELAS
@@ -97,9 +92,8 @@ def obtener_velas(asset, resol):
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"], r["v"]))
 
-
 # ================================
-# 🔍 SEMI-INSTITUCIONAL: CONTEXTO + GATILLO + VOLUMEN + ANTI-TRAMPA
+# 🔍 SEMI-INSTITUCIONAL
 # ================================
 def detectar_senal(v5, v1):
     o5, h5, l5, c5, v5v = zip(*v5[-10:])
@@ -112,17 +106,15 @@ def detectar_senal(v5, v1):
 
     return contexto and ruptura and confirmacion and volumen
 
-
 # ================================
-# ⏰ SESIONES
+# ⏰ SESIÓN
 # ================================
 def sesion_activa():
     h = datetime.now(mx).hour
     return 7 <= h <= 14
 
-
 # ================================
-# 🚀 PROCESAR ENTRADA REAL
+# 🚀 EJECUTAR TRADE
 # ================================
 def ejecutar_trade(asset, price):
     if not risk.puede_operar():
@@ -144,34 +136,43 @@ def ejecutar_trade(asset, price):
 
     send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
 
-
 # ================================
-# 🔄 LOOP PRINCIPAL SEMI-INSTITUCIONAL
+# 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
     send("✅ BOT SEMI-INSTITUCIONAL ACTIVADO")
     actualizar_estado("Activo semi-institucional ✅")
 
     while True:
-        if sesion_activa():
-            for asset in SYMBOLS:
-                v5 = obtener_velas(asset, 5)
-                v1 = obtener_velas(asset, 1)
+        try:
+            if sesion_activa():
+                for asset in SYMBOLS:
+                    v5 = obtener_velas(asset, 5)
+                    v1 = obtener_velas(asset, 1)
 
-                if not v5 or not v1:
-                    continue
+                    if not v5 or not v1:
+                        continue
 
-                if detectar_senal(v5, v1):
-                    price = v1[-1][4]
-                    ejecutar_trade(asset, price)
+                    if detectar_senal(v5, v1):
+                        price = v1[-1][4]
+                        ejecutar_trade(asset, price)
 
-        time.sleep(60)
-
+            time.sleep(60)
+        except Exception as e:
+            send(f"⚠️ Error en loop: {e}")
+            time.sleep(30)
 
 # ================================
 # ▶ INICIO
 # ================================
-api = DerivAPI(DERIV_TOKEN, on_trade_result)
-copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
+if __name__ == "__main__":
+    api = DerivAPI(DERIV_TOKEN, on_trade_result)
+    copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
 
-threading.Thread(target=analizar).start()
+    hilo = threading.Thread(target=analizar)
+    hilo.daemon = True
+    hilo.start()
+
+    # Mantiene el proceso vivo
+    while True:
+        time.sleep(300)
