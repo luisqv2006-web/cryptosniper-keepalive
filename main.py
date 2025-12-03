@@ -1,6 +1,6 @@
 # =============================================================
 # CRYPTOSNIPER FX — v11.0 SEMI-INSTITUCIONAL (BINARIAS 1M + 5M + ORO)
-# ✅ LIMPIO PARA RENDER — FLASK SOLO EN keep_alive.py
+# ✅ DEBUG DE FINNHUB + LOG DE ANÁLISIS + SESIÓN 24/7
 # =============================================================
 
 from keep_alive import keep_alive
@@ -77,7 +77,7 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS
+# 📊 VELAS (CON ALERTA FINNHUB)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
@@ -85,9 +85,14 @@ def obtener_velas(asset, resol):
     desde = now - 3600
 
     url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
-    r = requests.get(url).json()
+    try:
+        r = requests.get(url, timeout=10).json()
+    except Exception as e:
+        send(f"⚠️ Error de red con Finnhub en {asset}: {e}")
+        return None
 
     if r.get("s") != "ok":
+        send(f"⚠️ Finnhub sin datos para {asset} | Respuesta: {r}")
         return None
 
     return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"], r["v"]))
@@ -107,11 +112,10 @@ def detectar_senal(v5, v1):
     return contexto and ruptura and confirmacion and volumen
 
 # ================================
-# ⏰ SESIÓN
+# ⏰ SESIÓN (DESBLOQUEADA 24/7 PARA PRUEBA)
 # ================================
 def sesion_activa():
-    h = datetime.now(mx).hour
-    return 7 <= h <= 14
+    return True
 
 # ================================
 # 🚀 EJECUTAR TRADE
@@ -145,6 +149,8 @@ def analizar():
 
     while True:
         try:
+            send(f"🧠 Analizando mercado... {datetime.now(mx)}")
+
             if sesion_activa():
                 for asset in SYMBOLS:
                     v5 = obtener_velas(asset, 5)
