@@ -1,10 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v11.0 SEMI-INSTITUCIONAL (BINARIAS 1M + 5M + ORO)
-# ✅ SOLO EUR/USD + XAU/USD
-# ✅ TWELVEDATA CORRECTO
-# ✅ ANTI ERROR DE VOLUMEN
-# ✅ SIN FINNHUB
-# ✅ FLASK SOLO EN keep_alive.py
+# CRYPTOSNIPER FX — v12.0 ULTRA ESTABLE (EUR/USD + XAU/USD)
 # =============================================================
 
 from keep_alive import keep_alive
@@ -29,13 +24,13 @@ from firebase_cache import actualizar_estado, guardar_macro
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
-TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
+TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")   # <<<<<< IMPORTANTE
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ================================
-# 🔥 ACTIVOS (SOLO EUR/USD Y ORO)
+# 🔥 ACTIVOS (SOLO LOS 2 QUE PEDISTE ✅)
 # ================================
 SYMBOLS = {
     "EUR/USD": "EUR/USD",
@@ -78,7 +73,7 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS (TWELVEDATA - ANTI ERRORES ✅)
+# 📊 VELAS (TWELVEDATA BLINDADO ✅)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
@@ -89,11 +84,11 @@ def obtener_velas(asset, resol):
     try:
         r = requests.get(url, timeout=10).json()
     except Exception as e:
-        send(f"⚠️ Error de red con TwelveData en {asset}: {e}")
+        send(f"⚠️ Error de red TwelveData {asset}: {e}")
         return None
 
     if "values" not in r:
-        send(f"⚠️ TwelveData sin datos para {asset} | Respuesta: {r}")
+        send(f"⚠️ TwelveData sin datos {asset} | {r}")
         return None
 
     data = r["values"]
@@ -101,38 +96,43 @@ def obtener_velas(asset, resol):
 
     velas = []
     for vela in data:
-        volumen = float(vela["volume"]) if "volume" in vela else 1.0  # ✅ evita crash
-
-        velas.append((
-            0,
-            float(vela["open"]),
-            float(vela["high"]),
-            float(vela["low"]),
-            float(vela["close"]),
-            volumen
-        ))
+        try:
+            o = float(vela["open"])
+            h = float(vela["high"])
+            l = float(vela["low"])
+            c = float(vela["close"])
+            v = float(vela["volume"]) if "volume" in vela else 1.0
+            velas.append((o, h, l, c, v))
+        except:
+            continue
 
     return velas
 
 # ================================
-# 🔍 SEMI-INSTITUCIONAL
+# 🔍 SEMI-INSTITUCIONAL (BLINDADO ✅)
 # ================================
 def detectar_senal(v5, v1):
-    o5, h5, l5, c5, v5v = zip(*v5[-10:])
-    o1, h1, l1, c1, v1v = zip(*v1[-3:])
+    try:
+        o5, h5, l5, c5, v5v = zip(*v5[-10:])
+        o1, h1, l1, c1, v1v = zip(*v1[-3:])
 
-    contexto = c5[-1] > h5[-2] or c5[-1] < l5[-2]
-    ruptura = c1[-2] > h1[-3] or c1[-2] < l1[-3]
-    confirmacion = c1[-1] > c1[-2] if ruptura else False
-    volumen = v1v[-1] > sum(v1v[-6:-1]) / 5
+        contexto = c5[-1] > h5[-2] or c5[-1] < l5[-2]
+        ruptura = c1[-2] > h1[-3] or c1[-2] < l1[-3]
+        confirmacion = c1[-1] > c1[-2] if ruptura else False
+        volumen = v1v[-1] > sum(v1v[-6:-1]) / 5
 
-    return contexto and ruptura and confirmacion and volumen
+        return contexto and ruptura and confirmacion and volumen
+
+    except Exception as e:
+        send(f"⚠️ Error en señal: {e}")
+        return False
 
 # ================================
-# ⏰ SESIÓN (24/7 ACTIVA)
+# ⏰ SESIÓN
 # ================================
 def sesion_activa():
-    return True
+    h = datetime.now(mx).hour
+    return 7 <= h <= 14
 
 # ================================
 # 🚀 EJECUTAR TRADE
@@ -170,6 +170,7 @@ def analizar():
 
             if sesion_activa():
                 for asset in SYMBOLS:
+
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
 
@@ -177,10 +178,11 @@ def analizar():
                         continue
 
                     if detectar_senal(v5, v1):
-                        price = v1[-1][4]
+                        price = v1[-1][3]
                         ejecutar_trade(asset, price)
 
             time.sleep(60)
+
         except Exception as e:
             send(f"⚠️ Error en loop: {e}")
             time.sleep(30)
@@ -196,6 +198,5 @@ if __name__ == "__main__":
     hilo.daemon = True
     hilo.start()
 
-    # Mantiene el proceso vivo
     while True:
         time.sleep(300)
