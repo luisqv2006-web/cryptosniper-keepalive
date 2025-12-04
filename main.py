@@ -1,6 +1,7 @@
 # =============================================================
 # CRYPTOSNIPER FX — v11.0 SEMI-INSTITUCIONAL (BINARIAS 1M + 5M + ORO)
-# ✅ DEBUG DE FINNHUB + LOG DE ANÁLISIS + SESIÓN 24/7
+# ✅ SOLO EUR/USD + XAU/USD | TWELVEDATA ACTIVO | SIN FINNHUB
+# ✅ FLASK SOLO EN keep_alive.py
 # =============================================================
 
 from keep_alive import keep_alive
@@ -25,20 +26,17 @@ from firebase_cache import actualizar_estado, guardar_macro
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
-FINNHUB_KEY = os.getenv("FINNHUB_KEY")
+TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ================================
-# 🔥 ACTIVOS
+# 🔥 ACTIVOS (SOLO EUR/USD Y ORO)
 # ================================
 SYMBOLS = {
-    "EUR/USD": "frxEURUSD",
-    "GBP/USD": "frxGBPUSD",
-    "USD/JPY": "frxUSDJPY",
-    "USD/CAD": "frxUSDCAD",
-    "XAU/USD": "frxXAUUSD"
+    "EUR/USD": "EURUSD",
+    "XAU/USD": "XAUUSD"
 }
 
 # ================================
@@ -77,25 +75,39 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS (CON ALERTA FINNHUB)
+# 📊 VELAS (TWELVEDATA)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
-    now = int(time.time())
-    desde = now - 3600
+    api_key = TWELVE_API_KEY
 
-    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution={resol}&from={desde}&to={now}&token={FINNHUB_KEY}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&outputsize=30&apikey={api_key}"
+
     try:
         r = requests.get(url, timeout=10).json()
     except Exception as e:
-        send(f"⚠️ Error de red con Finnhub en {asset}: {e}")
+        send(f"⚠️ Error de red con TwelveData en {asset}: {e}")
         return None
 
-    if r.get("s") != "ok":
-        send(f"⚠️ Finnhub sin datos para {asset} | Respuesta: {r}")
+    if "values" not in r:
+        send(f"⚠️ TwelveData sin datos para {asset} | Respuesta: {r}")
         return None
 
-    return list(zip(r["t"], r["o"], r["h"], r["l"], r["c"], r["v"]))
+    data = r["values"]
+    data.reverse()
+
+    velas = []
+    for vela in data:
+        velas.append((
+            0,
+            float(vela["open"]),
+            float(vela["high"]),
+            float(vela["low"]),
+            float(vela["close"]),
+            float(vela["volume"])
+        ))
+
+    return velas
 
 # ================================
 # 🔍 SEMI-INSTITUCIONAL
@@ -112,7 +124,7 @@ def detectar_senal(v5, v1):
     return contexto and ruptura and confirmacion and volumen
 
 # ================================
-# ⏰ SESIÓN (DESBLOQUEADA 24/7 PARA PRUEBA)
+# ⏰ SESIÓN (24/7 ACTIVA)
 # ================================
 def sesion_activa():
     return True
@@ -149,7 +161,7 @@ def analizar():
 
     while True:
         try:
-            send(f"🧠 Analizando mercado... {datetime.now(mx)}")
+            send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
 
             if sesion_activa():
                 for asset in SYMBOLS:
