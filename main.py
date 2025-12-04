@@ -1,6 +1,8 @@
 # =============================================================
 # CRYPTOSNIPER FX — v11.0 SEMI-INSTITUCIONAL (BINARIAS 1M + 5M + ORO)
-# ✅ SOLO EUR/USD + XAU/USD | TWELVEDATA ACTIVO | SIN FINNHUB
+# ✅ SOLO EUR/USD + XAU/USD
+# ✅ TWELVEDATA CORRECTO (SÍMBOLOS ARREGLADOS)
+# ✅ SIN FINNHUB
 # ✅ FLASK SOLO EN keep_alive.py
 # =============================================================
 
@@ -33,10 +35,11 @@ mx = pytz.timezone("America/Mexico_City")
 
 # ================================
 # 🔥 ACTIVOS (SOLO EUR/USD Y ORO)
+# ✅ FORMATO CORRECTO PARA TWELVEDATA
 # ================================
 SYMBOLS = {
-    "EUR/USD": "EURUSD",
-    "XAU/USD": "XAUUSD"
+    "EUR/USD": "EUR/USD",
+    "XAU/USD": "XAU/USD"
 }
 
 # ================================
@@ -75,7 +78,7 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS (TWELVEDATA)
+# 📊 VELAS (TWELVEDATA ✅)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
