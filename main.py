@@ -1,7 +1,8 @@
 # =============================================================
 # CRYPTOSNIPER FX — v11.0 SEMI-INSTITUCIONAL (BINARIAS 1M + 5M + ORO)
 # ✅ SOLO EUR/USD + XAU/USD
-# ✅ TWELVEDATA CORRECTO (SÍMBOLOS ARREGLADOS)
+# ✅ TWELVEDATA CORRECTO
+# ✅ ANTI ERROR DE VOLUMEN
 # ✅ SIN FINNHUB
 # ✅ FLASK SOLO EN keep_alive.py
 # =============================================================
@@ -35,7 +36,6 @@ mx = pytz.timezone("America/Mexico_City")
 
 # ================================
 # 🔥 ACTIVOS (SOLO EUR/USD Y ORO)
-# ✅ FORMATO CORRECTO PARA TWELVEDATA
 # ================================
 SYMBOLS = {
     "EUR/USD": "EUR/USD",
@@ -78,13 +78,13 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS (TWELVEDATA ✅)
+# 📊 VELAS (TWELVEDATA - ANTI ERRORES ✅)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
     api_key = TWELVE_API_KEY
 
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&outputsize=30&apikey={api_key}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&exchange=FOREX&outputsize=30&apikey={api_key}"
 
     try:
         r = requests.get(url, timeout=10).json()
@@ -101,13 +101,15 @@ def obtener_velas(asset, resol):
 
     velas = []
     for vela in data:
+        volumen = float(vela["volume"]) if "volume" in vela else 1.0  # ✅ evita crash
+
         velas.append((
             0,
             float(vela["open"]),
             float(vela["high"]),
             float(vela["low"]),
             float(vela["close"]),
-            float(vela["volume"])
+            volumen
         ))
 
     return velas
