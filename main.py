@@ -1,6 +1,7 @@
 # =============================================================
-# CRYPTOSNIPER FX — v13.0 (PRE-ALERTA + AUTO-ENTRADA)
-# EUR/USD + XAU/USD | CADA 2 MIN
+# CRYPTOSNIPER FX — v14.0 FINAL
+# PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
+# SESIONES FUERTES | CADA 2 MINUTOS
 # =============================================================
 
 from keep_alive import keep_alive
@@ -74,7 +75,7 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS (BLINDADO)
+# 📊 OBTENER VELAS (TWELVEDATA)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
@@ -84,7 +85,7 @@ def obtener_velas(asset, resol):
 
     try:
         r = requests.get(url, timeout=10).json()
-    except Exception:
+    except:
         return None
 
     if "values" not in r:
@@ -108,7 +109,7 @@ def obtener_velas(asset, resol):
     return velas
 
 # ================================
-# 🔍 DETECCIÓN DE CONFLUENCIAS
+# 🔍 DETECCIÓN DE FASES
 # ================================
 def detectar_fase(v5, v1):
     try:
@@ -130,6 +131,22 @@ def detectar_fase(v5, v1):
 
     except:
         return "NADA"
+
+# ================================
+# ⏰ SESIONES FUERTES (HORA MÉXICO)
+# Londres: 02:00 – 05:00
+# Nueva York: 07:00 – 10:00
+# ================================
+def sesion_activa():
+    h = datetime.now(mx).hour
+
+    if 2 <= h <= 5:
+        return True
+
+    if 7 <= h <= 10:
+        return True
+
+    return False
 
 # ================================
 # 🧠 MEMORIA DE PRE-ALERTAS
@@ -168,25 +185,26 @@ def analizar():
 
     while True:
         try:
-            send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
+            if sesion_activa():
+                send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
 
-            for asset in SYMBOLS:
-                v5 = obtener_velas(asset, 5)
-                v1 = obtener_velas(asset, 1)
+                for asset in SYMBOLS:
+                    v5 = obtener_velas(asset, 5)
+                    v1 = obtener_velas(asset, 1)
 
-                if not v5 or not v1:
-                    continue
+                    if not v5 or not v1:
+                        continue
 
-                fase = detectar_fase(v5, v1)
-                precio_actual = v1[-1][3]
+                    fase = detectar_fase(v5, v1)
+                    precio_actual = v1[-1][3]
 
-                if fase == "PRE" and not prealertas.get(asset):
-                    send(f"🟡 <b>PRE-ALERTA</b>\nPosible setup en {asset}\nEsperando confirmación...")
-                    prealertas[asset] = True
+                    if fase == "PRE" and not prealertas.get(asset):
+                        send(f"🟡 <b>PRE-ALERTA</b>\nPosible setup en {asset}\nEsperando confirmación...")
+                        prealertas[asset] = True
 
-                if fase == "ENTRADA":
-                    ejecutar_trade(asset, precio_actual)
-                    prealertas[asset] = False
+                    if fase == "ENTRADA":
+                        ejecutar_trade(asset, precio_actual)
+                        prealertas[asset] = False
 
             time.sleep(120)
 
