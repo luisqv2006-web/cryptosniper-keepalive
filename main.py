@@ -1,7 +1,8 @@
 # =============================================================
-# CRYPTOSNIPER FX — v14.1 FINAL FIX
+# CRYPTOSNIPER FX — v15.0 IMMORTAL
 # PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
-# SESIONES FUERTES | CADA 2 MINUTOS | MODO SILENCIO FUERA DE HORARIO
+# SESIONES FUERTES | CADA 2 MIN
+# AUTO-REINICIO + ALERTAS DE CAÍDA
 # =============================================================
 
 from keep_alive import keep_alive
@@ -62,6 +63,31 @@ def send(msg):
         pass
 
 # ================================
+# 🛡️ ANTI-CAÍDAS + AUTO-REINICIO
+# ================================
+ULTIMA_SEÑAL = time.time()
+
+def actualizar_latido():
+    global ULTIMA_SEÑAL
+    ULTIMA_SEÑAL = time.time()
+
+def watchdog():
+    while True:
+        try:
+            diferencia = time.time() - ULTIMA_SEÑAL
+
+            if diferencia > 360:  # 6 minutos sin vida → CRASH
+                send("🔴 BOT CONGELADO — REINICIO AUTOMÁTICO ACTIVADO")
+                time.sleep(3)
+                os._exit(1)
+
+            send("🟢 Bot vivo | Watchdog OK")
+        except:
+            pass
+
+        time.sleep(300)  # Cada 5 minutos
+
+# ================================
 # 📊 RESULTADOS DERIV
 # ================================
 def on_trade_result(result):
@@ -75,13 +101,11 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 OBTENER VELAS (TWELVEDATA)
+# 📊 OBTENER VELAS
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
-    api_key = TWELVE_API_KEY
-
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&exchange=FOREX&outputsize=30&apikey={api_key}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&exchange=FOREX&outputsize=30&apikey={TWELVE_API_KEY}"
 
     try:
         r = requests.get(url, timeout=10).json()
@@ -109,7 +133,7 @@ def obtener_velas(asset, resol):
     return velas
 
 # ================================
-# 🔍 DETECCIÓN DE FASES
+# 🔍 FASES
 # ================================
 def detectar_fase(v5, v1):
     try:
@@ -133,18 +157,14 @@ def detectar_fase(v5, v1):
         return "NADA"
 
 # ================================
-# ⏰ SESIONES FUERTES (HORA MÉXICO)
-# Londres: 02:00 – 05:00
-# Nueva York: 07:00 – 10:00
+# ⏰ SESIONES FUERTES
 # ================================
 def sesion_activa():
     h = datetime.now(mx).hour
-    if 2 <= h <= 5 or 7 <= h <= 10:
-        return True
-    return False
+    return (2 <= h <= 5) or (7 <= h <= 10)
 
 # ================================
-# 🧠 MEMORIA DE PRE-ALERTAS
+# 🧠 PRE-ALERTAS
 # ================================
 prealertas = {}
 
@@ -172,20 +192,20 @@ def ejecutar_trade(asset, price):
     send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
 
 # ================================
-# 🔄 LOOP PRINCIPAL (CADA 2 MIN | SILENCIOSO FUERA DE HORARIO)
+# 🔄 LOOP PRINCIPAL
 # ================================
 def analizar():
-    send("✅ BOT ACTIVADO — MODO SILENCIO FUERA DE HORARIO")
-    actualizar_estado("Activo con bloqueo de horario ✅")
+    send("✅ BOT ACTIVADO — AUTO-REINICIO + SILENCIO FUERA DE HORARIO")
+    actualizar_estado("Activo con auto-reinicio ✅")
 
     while True:
         try:
-            # 🔒 BLOQUEO TOTAL FUERA DE HORARIO
+            actualizar_latido()  # 🔥 clave para el watchdog
+
             if not sesion_activa():
                 time.sleep(120)
                 continue
 
-            # 🔥 SOLO SI ESTÁ DENTRO DEL HORARIO:
             send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
 
             for asset in SYMBOLS:
@@ -199,7 +219,7 @@ def analizar():
                 precio_actual = v1[-1][3]
 
                 if fase == "PRE" and not prealertas.get(asset):
-                    send(f"🟡 <b>PRE-ALERTA</b>\nPosible setup en {asset}\nEsperando confirmación...")
+                    send(f"🟡 <b>PRE-ALERTA</b>\n{asset}\nEsperando confirmación...")
                     prealertas[asset] = True
 
                 if fase == "ENTRADA":
@@ -209,8 +229,8 @@ def analizar():
             time.sleep(120)
 
         except Exception as e:
-            send(f"⚠️ Error en loop: {e}")
-            time.sleep(60)
+            send(f"⚠️ Error crítico: {e}")
+            time.sleep(30)
 
 # ================================
 # ▶ INICIO
@@ -222,6 +242,10 @@ if __name__ == "__main__":
     hilo = threading.Thread(target=analizar)
     hilo.daemon = True
     hilo.start()
+
+    hilo_watchdog = threading.Thread(target=watchdog)
+    hilo_watchdog.daemon = True
+    hilo_watchdog.start()
 
     while True:
         time.sleep(300)
