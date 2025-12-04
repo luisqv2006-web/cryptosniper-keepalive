@@ -1,5 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v12.0 ULTRA ESTABLE (EUR/USD + XAU/USD)
+# CRYPTOSNIPER FX — v13.0 (PRE-ALERTA + AUTO-ENTRADA)
+# EUR/USD + XAU/USD | CADA 2 MIN
 # =============================================================
 
 from keep_alive import keep_alive
@@ -24,13 +25,13 @@ from firebase_cache import actualizar_estado, guardar_macro
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
-TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")   # <<<<<< IMPORTANTE
+TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ================================
-# 🔥 ACTIVOS (SOLO LOS 2 QUE PEDISTE ✅)
+# 🔥 ACTIVOS
 # ================================
 SYMBOLS = {
     "EUR/USD": "EUR/USD",
@@ -73,7 +74,7 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 0, result)
 
 # ================================
-# 📊 VELAS (TWELVEDATA BLINDADO ✅)
+# 📊 VELAS (BLINDADO)
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
@@ -83,12 +84,10 @@ def obtener_velas(asset, resol):
 
     try:
         r = requests.get(url, timeout=10).json()
-    except Exception as e:
-        send(f"⚠️ Error de red TwelveData {asset}: {e}")
+    except Exception:
         return None
 
     if "values" not in r:
-        send(f"⚠️ TwelveData sin datos {asset} | {r}")
         return None
 
     data = r["values"]
@@ -109,9 +108,9 @@ def obtener_velas(asset, resol):
     return velas
 
 # ================================
-# 🔍 SEMI-INSTITUCIONAL (BLINDADO ✅)
+# 🔍 DETECCIÓN DE CONFLUENCIAS
 # ================================
-def detectar_senal(v5, v1):
+def detectar_fase(v5, v1):
     try:
         o5, h5, l5, c5, v5v = zip(*v5[-10:])
         o1, h1, l1, c1, v1v = zip(*v1[-3:])
@@ -119,20 +118,23 @@ def detectar_senal(v5, v1):
         contexto = c5[-1] > h5[-2] or c5[-1] < l5[-2]
         ruptura = c1[-2] > h1[-3] or c1[-2] < l1[-3]
         confirmacion = c1[-1] > c1[-2] if ruptura else False
-        volumen = v1v[-1] > sum(v1v[-6:-1]) / 5
+        volumen = v1v[-1] > (sum(v1v[-3:]) / 3)
 
-        return contexto and ruptura and confirmacion and volumen
+        if contexto and ruptura and not confirmacion:
+            return "PRE"
 
-    except Exception as e:
-        send(f"⚠️ Error en señal: {e}")
-        return False
+        if contexto and ruptura and confirmacion and volumen:
+            return "ENTRADA"
+
+        return "NADA"
+
+    except:
+        return "NADA"
 
 # ================================
-# ⏰ SESIÓN
+# 🧠 MEMORIA DE PRE-ALERTAS
 # ================================
-def sesion_activa():
-    h = datetime.now(mx).hour
-    return 7 <= h <= 14
+prealertas = {}
 
 # ================================
 # 🚀 EJECUTAR TRADE
@@ -158,34 +160,39 @@ def ejecutar_trade(asset, price):
     send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
 
 # ================================
-# 🔄 LOOP PRINCIPAL
+# 🔄 LOOP PRINCIPAL (CADA 2 MIN)
 # ================================
 def analizar():
-    send("✅ BOT SEMI-INSTITUCIONAL ACTIVADO")
-    actualizar_estado("Activo semi-institucional ✅")
+    send("✅ BOT CON PRE-ALERTAS ACTIVADO")
+    actualizar_estado("Activo con pre-alertas ✅")
 
     while True:
         try:
             send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
 
-            if sesion_activa():
-                for asset in SYMBOLS:
+            for asset in SYMBOLS:
+                v5 = obtener_velas(asset, 5)
+                v1 = obtener_velas(asset, 1)
 
-                    v5 = obtener_velas(asset, 5)
-                    v1 = obtener_velas(asset, 1)
+                if not v5 or not v1:
+                    continue
 
-                    if not v5 or not v1:
-                        continue
+                fase = detectar_fase(v5, v1)
+                precio_actual = v1[-1][3]
 
-                    if detectar_senal(v5, v1):
-                        price = v1[-1][3]
-                        ejecutar_trade(asset, price)
+                if fase == "PRE" and not prealertas.get(asset):
+                    send(f"🟡 <b>PRE-ALERTA</b>\nPosible setup en {asset}\nEsperando confirmación...")
+                    prealertas[asset] = True
 
-            time.sleep(60)
+                if fase == "ENTRADA":
+                    ejecutar_trade(asset, precio_actual)
+                    prealertas[asset] = False
+
+            time.sleep(120)
 
         except Exception as e:
             send(f"⚠️ Error en loop: {e}")
-            time.sleep(30)
+            time.sleep(60)
 
 # ================================
 # ▶ INICIO
