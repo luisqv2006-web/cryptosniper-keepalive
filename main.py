@@ -1,7 +1,7 @@
 # =============================================================
-# CRYPTOSNIPER FX — v14.0 FINAL
+# CRYPTOSNIPER FX — v14.1 FINAL FIX
 # PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
-# SESIONES FUERTES | CADA 2 MINUTOS
+# SESIONES FUERTES | CADA 2 MINUTOS | MODO SILENCIO FUERA DE HORARIO
 # =============================================================
 
 from keep_alive import keep_alive
@@ -139,13 +139,8 @@ def detectar_fase(v5, v1):
 # ================================
 def sesion_activa():
     h = datetime.now(mx).hour
-
-    if 2 <= h <= 5:
+    if 2 <= h <= 5 or 7 <= h <= 10:
         return True
-
-    if 7 <= h <= 10:
-        return True
-
     return False
 
 # ================================
@@ -177,34 +172,39 @@ def ejecutar_trade(asset, price):
     send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
 
 # ================================
-# 🔄 LOOP PRINCIPAL (CADA 2 MIN)
+# 🔄 LOOP PRINCIPAL (CADA 2 MIN | SILENCIOSO FUERA DE HORARIO)
 # ================================
 def analizar():
-    send("✅ BOT CON PRE-ALERTAS ACTIVADO")
-    actualizar_estado("Activo con pre-alertas ✅")
+    send("✅ BOT ACTIVADO — MODO SILENCIO FUERA DE HORARIO")
+    actualizar_estado("Activo con bloqueo de horario ✅")
 
     while True:
         try:
-            if sesion_activa():
-                send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
+            # 🔒 BLOQUEO TOTAL FUERA DE HORARIO
+            if not sesion_activa():
+                time.sleep(120)
+                continue
 
-                for asset in SYMBOLS:
-                    v5 = obtener_velas(asset, 5)
-                    v1 = obtener_velas(asset, 1)
+            # 🔥 SOLO SI ESTÁ DENTRO DEL HORARIO:
+            send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
 
-                    if not v5 or not v1:
-                        continue
+            for asset in SYMBOLS:
+                v5 = obtener_velas(asset, 5)
+                v1 = obtener_velas(asset, 1)
 
-                    fase = detectar_fase(v5, v1)
-                    precio_actual = v1[-1][3]
+                if not v5 or not v1:
+                    continue
 
-                    if fase == "PRE" and not prealertas.get(asset):
-                        send(f"🟡 <b>PRE-ALERTA</b>\nPosible setup en {asset}\nEsperando confirmación...")
-                        prealertas[asset] = True
+                fase = detectar_fase(v5, v1)
+                precio_actual = v1[-1][3]
 
-                    if fase == "ENTRADA":
-                        ejecutar_trade(asset, precio_actual)
-                        prealertas[asset] = False
+                if fase == "PRE" and not prealertas.get(asset):
+                    send(f"🟡 <b>PRE-ALERTA</b>\nPosible setup en {asset}\nEsperando confirmación...")
+                    prealertas[asset] = True
+
+                if fase == "ENTRADA":
+                    ejecutar_trade(asset, precio_actual)
+                    prealertas[asset] = False
 
             time.sleep(120)
 
