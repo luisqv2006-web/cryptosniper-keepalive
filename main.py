@@ -1,8 +1,7 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.0 IMMORTAL
+# CRYPTOSNIPER FX — v15.2 FINAL OPERATIVO
 # PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
-# SESIONES FUERTES | CADA 2 MIN
-# AUTO-REINICIO + ALERTAS DE CAÍDA
+# SOLO HABLA EN HORARIO | AUTO-REINICIO + ALERTAS DE CAÍDA
 # =============================================================
 
 from keep_alive import keep_alive
@@ -63,6 +62,15 @@ def send(msg):
         pass
 
 # ================================
+# ⏰ SESIONES FUERTES (HORA MÉXICO)
+# Londres: 02:00 – 05:00
+# Nueva York: 07:00 – 10:00
+# ================================
+def sesion_activa():
+    h = datetime.now(mx).hour
+    return (2 <= h <= 5) or (7 <= h <= 10)
+
+# ================================
 # 🛡️ ANTI-CAÍDAS + AUTO-REINICIO
 # ================================
 ULTIMA_SEÑAL = time.time()
@@ -76,16 +84,20 @@ def watchdog():
         try:
             diferencia = time.time() - ULTIMA_SEÑAL
 
-            if diferencia > 360:  # 6 minutos sin vida → CRASH
+            # 🔴 Si pasan 6 min sin actividad → reinicio forzado
+            if diferencia > 360:
                 send("🔴 BOT CONGELADO — REINICIO AUTOMÁTICO ACTIVADO")
                 time.sleep(3)
                 os._exit(1)
 
-            send("🟢 Bot vivo | Watchdog OK")
+            # ✅ SOLO avisa que está vivo dentro del horario
+            if sesion_activa():
+                send("🟢 Bot vivo | Watchdog OK")
+
         except:
             pass
 
-        time.sleep(300)  # Cada 5 minutos
+        time.sleep(300)  # cada 5 min
 
 # ================================
 # 📊 RESULTADOS DERIV
@@ -133,7 +145,7 @@ def obtener_velas(asset, resol):
     return velas
 
 # ================================
-# 🔍 FASES
+# 🔍 DETECCIÓN DE FASES
 # ================================
 def detectar_fase(v5, v1):
     try:
@@ -155,13 +167,6 @@ def detectar_fase(v5, v1):
 
     except:
         return "NADA"
-
-# ================================
-# ⏰ SESIONES FUERTES
-# ================================
-def sesion_activa():
-    h = datetime.now(mx).hour
-    return (2 <= h <= 5) or (7 <= h <= 10)
 
 # ================================
 # 🧠 PRE-ALERTAS
@@ -192,16 +197,18 @@ def ejecutar_trade(asset, price):
     send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
 
 # ================================
-# 🔄 LOOP PRINCIPAL
+# 🔄 LOOP PRINCIPAL (SOLO EN HORARIO)
 # ================================
 def analizar():
-    send("✅ BOT ACTIVADO — AUTO-REINICIO + SILENCIO FUERA DE HORARIO")
-    actualizar_estado("Activo con auto-reinicio ✅")
+    if sesion_activa():
+        send("✅ BOT ACTIVADO — SOLO HABLA EN HORARIO")
+        actualizar_estado("Activo modo horario ✅")
 
     while True:
         try:
-            actualizar_latido()  # 🔥 clave para el watchdog
+            actualizar_latido()
 
+            # 🔕 SILENCIO TOTAL FUERA DE HORARIO
             if not sesion_activa():
                 time.sleep(120)
                 continue
@@ -229,7 +236,8 @@ def analizar():
             time.sleep(120)
 
         except Exception as e:
-            send(f"⚠️ Error crítico: {e}")
+            if sesion_activa():
+                send(f"⚠️ Error crítico: {e}")
             time.sleep(30)
 
 # ================================
