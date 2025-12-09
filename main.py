@@ -1,4 +1,4 @@
-# =============================================================
+       # =============================================================
 # CRYPTOSNIPER FX — v15.2 FINAL OPERATIVO
 # PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
 # SOLO HABLA EN HORARIO | AUTO-REINICIO + ALERTAS DE CAÍDA
@@ -155,12 +155,13 @@ def detectar_fase(v5, v1):
         contexto = c5[-1] > h5[-2] or c5[-1] < l5[-2]
         ruptura = c1[-2] > h1[-3] or c1[-2] < l1[-3]
         confirmacion = c1[-1] > c1[-2] if ruptura else False
-        volumen = v1v[-1] > (sum(v1v[-3:]) / 3)
+        volumen = v1v[-1] > (sum(v1v[-3:]) / 3) 
 
         if contexto and ruptura and not confirmacion:
             return "PRE"
 
-        if contexto and ruptura and confirmacion and volumen:
+        # --- MODIFICACIÓN DE ESTRATEGIA: Se eliminó la condición 'and volumen' (volumen) para que opere más. ---
+        if contexto and ruptura and confirmacion: 
             return "ENTRADA"
 
         return "NADA"
