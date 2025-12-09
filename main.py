@@ -225,13 +225,22 @@ def analizar():
                 fase = detectar_fase(v5, v1)
                 precio_actual = v1[-1][3]
 
-                if fase == "PRE" and not prealertas.get(asset):
-                    send(f"🟡 <b>PRE-ALERTA</b>\n{asset}\nEsperando confirmación...")
-                    prealertas[asset] = True
-
-                if fase == "ENTRADA":
+                # --- LÓGICA DE PRUEBA MODIFICADA ---
+                # Esta lógica forzará una operación en XAU/USD cada 2 minutos si el bot NO está en pausa por riesgo.
+                if asset == "XAU/USD":
                     ejecutar_trade(asset, precio_actual)
+                    send(f"🧪 [TEST] Entrada Forzada en {asset} a {precio_actual}")
                     prealertas[asset] = False
+                # --- FIN DE LÓGICA DE PRUEBA ---
+
+                # La lógica original de la fase de entrada está comentada:
+                # if fase == "PRE" and not prealertas.get(asset):
+                #     send(f"🟡 <b>PRE-ALERTA</b>\n{asset}\nEsperando confirmación...")
+                #     prealertas[asset] = True
+
+                # if fase == "ENTRADA":
+                #     ejecutar_trade(asset, precio_actual)
+                #     prealertas[asset] = False
 
             time.sleep(120)
 
