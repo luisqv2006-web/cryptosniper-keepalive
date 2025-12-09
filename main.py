@@ -1,4 +1,4 @@
-       # =============================================================
+# =============================================================
 # CRYPTOSNIPER FX — v15.2 FINAL OPERATIVO
 # PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
 # SOLO HABLA EN HORARIO | AUTO-REINICIO + ALERTAS DE CAÍDA
@@ -40,12 +40,13 @@ SYMBOLS = {
 }
 
 # ================================
-# 📌 RISK MANAGER
+# 📌 RISK MANAGER (Inicializado con zona horaria)
 # ================================
 risk = RiskManager(
     balance_inicial=27,
     max_loss_day=5,
-    max_trades_day=15
+    max_trades_day=15,
+    timezone="America/Mexico_City" # NUEVO: Pasa la zona horaria
 )
 
 # ================================
@@ -145,7 +146,7 @@ def obtener_velas(asset, resol):
     return velas
 
 # ================================
-# 🔍 DETECCIÓN DE FASES
+# 🔍 DETECCIÓN DE FASES (Volumen relajado)
 # ================================
 def detectar_fase(v5, v1):
     try:
@@ -160,7 +161,7 @@ def detectar_fase(v5, v1):
         if contexto and ruptura and not confirmacion:
             return "PRE"
 
-        # --- MODIFICACIÓN DE ESTRATEGIA: Se eliminó la condición 'and volumen' (volumen) para que opere más. ---
+        # *** MODIFICACIÓN APLICADA: Se quitó el "and volumen" ***
         if contexto and ruptura and confirmacion: 
             return "ENTRADA"
 
@@ -246,7 +247,7 @@ def analizar():
 # ================================
 if __name__ == "__main__":
     try:
-        # 1. Inicializar APIs. Si DerivAPI falla, el bot se detendrá aquí.
+        # 1. Inicializar APIs.
         api = DerivAPI(DERIV_TOKEN, on_trade_result)
         copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
         
@@ -266,7 +267,7 @@ if __name__ == "__main__":
         # 3. Manejo de error crítico en el inicio
         error_msg = f"❌ ERROR CRÍTICO AL INICIAR: {e}. Bot detenido."
         print(error_msg)
-        send(error_msg) # Envía el error a Telegram si el TOKEN de Telegram es válido
+        send(error_msg) 
 
     while True:
         time.sleep(300)
