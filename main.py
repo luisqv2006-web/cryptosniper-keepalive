@@ -90,7 +90,7 @@ def watchdog():
                 time.sleep(3)
                 os._exit(1)
 
-            # ✅ SOLO avisa que está vivo dentro del horario (CORREGIDO)
+            # ✅ SOLO avisa que está vivo dentro del horario
             if sesion_activa():
                 send("🟢 Bot vivo | Watchdog OK")
 
