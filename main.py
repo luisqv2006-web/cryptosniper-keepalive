@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.6 FINAL OPERATIVO
+# CRYPTOSNIPER FX — v15.6 FINAL OPERATIVO (CORRECCIÓN DE SILENCIO)
 # RSI 14 + EMA 50 + Volumen Suave + SILENCIO TOTAL FUERA DE HORARIO
 # =============================================================
 
@@ -45,7 +45,7 @@ risk = RiskManager(
     balance_inicial=27,
     max_loss_day=5,
     max_trades_day=15,
-    timezone="America/Mexico_City"
+    timezone="America/Mexico_City" # Se añade la zona horaria
 )
 
 # ================================
@@ -90,7 +90,7 @@ def watchdog():
                 time.sleep(3)
                 os._exit(1)
 
-            # ✅ SOLO avisa que está vivo dentro del horario
+            # ✅ SOLO avisa que está vivo dentro del horario (CORREGIDO)
             if sesion_activa():
                 send("🟢 Bot vivo | Watchdog OK")
 
@@ -159,12 +159,11 @@ def calcular_ema(candles, period):
     return ema
 
 def calcular_rsi(candles, period=14):
-    if len(candles) < period + 1: # Necesitamos N + 1 velas
+    if len(candles) < period + 1:
         return None
         
     cierres = [c[3] for c in candles]
     
-    # Calcular ganancias y pérdidas
     ganancias = []
     perdidas = []
     
@@ -173,11 +172,9 @@ def calcular_rsi(candles, period=14):
         ganancias.append(max(0, cambio))
         perdidas.append(max(0, -cambio))
 
-    # Primer promedio de ganancias/pérdidas (SMA inicial)
     avg_gain = sum(ganancias[:period]) / period
     avg_loss = sum(perdidas[:period]) / period
     
-    # RSI: smoothed average
     for i in range(period, len(ganancias)):
         avg_gain = (avg_gain * (period - 1) + ganancias[i]) / period
         avg_loss = (avg_loss * (period - 1) + perdidas[i]) / period
@@ -213,7 +210,6 @@ def detectar_fase(v5, v1):
             
         # 3. Lógica de Dirección
         if precio_cierre_5m > ema50:
-            # Tendencia alcista: solo buscamos BUY
             direction = "BUY"
             
             # FILTRO RSI: No sobrecomprado (RSI < 70)
@@ -226,7 +222,6 @@ def detectar_fase(v5, v1):
             confirmacion = c1[-1] > c1[-2]
             
         elif precio_cierre_5m < ema50:
-            # Tendencia bajista: solo buscamos SELL
             direction = "SELL"
             
             # FILTRO RSI: No sobrevendido (RSI > 30)
@@ -239,7 +234,6 @@ def detectar_fase(v5, v1):
             confirmacion = c1[-1] < c1[-2]
             
         else:
-            # Precio cerca de la EMA o sin tendencia clara
             return "NADA", None
             
         # 4. FILTRO DE VOLUMEN SUAVE
