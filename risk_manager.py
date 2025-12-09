@@ -6,13 +6,13 @@ class RiskManager:
         self.balance_inicial = balance_inicial
         self.max_loss_day = max_loss_day
         self.max_trades_day = max_trades_day
-        self.tz = pytz.timezone(timezone) 
+        self.tz = pytz.timezone(timezone) # Almacena la zona horaria
 
         self.perdidas_hoy = 0
         self.trades_hoy = 0
         self.racha_perdidas = 0
         self.pausado = False
-        self.fecha_ultimo_reset = datetime.now(self.tz).date() 
+        self.fecha_ultimo_reset = datetime.now(self.tz).date() # Fecha de inicialización
 
     def _check_and_reset_diario(self):
         """Revisa si es un nuevo día y resetea las métricas de riesgo."""
