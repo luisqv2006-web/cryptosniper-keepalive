@@ -1,15 +1,35 @@
+import pytz
+from datetime import datetime
+
 class RiskManager:
-    def __init__(self, balance_inicial, max_loss_day, max_trades_day):
+    def __init__(self, balance_inicial, max_loss_day, max_trades_day, timezone):
         self.balance_inicial = balance_inicial
         self.max_loss_day = max_loss_day
         self.max_trades_day = max_trades_day
+        self.tz = pytz.timezone(timezone) # Almacena la zona horaria
 
         self.perdidas_hoy = 0
         self.trades_hoy = 0
         self.racha_perdidas = 0
         self.pausado = False
+        self.fecha_ultimo_reset = datetime.now(self.tz).date() # Fecha de inicialización
+
+    def _check_and_reset_diario(self):
+        """Revisa si es un nuevo día y resetea las métricas de riesgo."""
+        today = datetime.now(self.tz).date()
+        
+        if today > self.fecha_ultimo_reset:
+            # Si el día cambió, resetea los contadores
+            self.perdidas_hoy = 0
+            self.trades_hoy = 0
+            self.racha_perdidas = 0
+            self.pausado = False
+            self.fecha_ultimo_reset = today
+            # Puedes añadir aquí un log o un send para avisar del reset si lo deseas
 
     def puede_operar(self):
+        self._check_and_reset_diario() # Ejecuta el check diario antes de permitir operar
+        
         if self.pausado:
             return False
         if self.perdidas_hoy >= self.max_loss_day:
