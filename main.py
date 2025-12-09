@@ -225,22 +225,13 @@ def analizar():
                 fase = detectar_fase(v5, v1)
                 precio_actual = v1[-1][3]
 
-                # --- LÓGICA DE PRUEBA MODIFICADA ---
-                # Esta lógica forzará una operación en XAU/USD cada 2 minutos si el bot NO está en pausa por riesgo.
-                if asset == "XAU/USD":
+                if fase == "PRE" and not prealertas.get(asset):
+                    send(f"🟡 <b>PRE-ALERTA</b>\n{asset}\nEsperando confirmación...")
+                    prealertas[asset] = True
+
+                if fase == "ENTRADA":
                     ejecutar_trade(asset, precio_actual)
-                    send(f"🧪 [TEST] Entrada Forzada en {asset} a {precio_actual}")
                     prealertas[asset] = False
-                # --- FIN DE LÓGICA DE PRUEBA ---
-
-                # La lógica original de la fase de entrada está comentada:
-                # if fase == "PRE" and not prealertas.get(asset):
-                #     send(f"🟡 <b>PRE-ALERTA</b>\n{asset}\nEsperando confirmación...")
-                #     prealertas[asset] = True
-
-                # if fase == "ENTRADA":
-                #     ejecutar_trade(asset, precio_actual)
-                #     prealertas[asset] = False
 
             time.sleep(120)
 
@@ -250,19 +241,31 @@ def analizar():
             time.sleep(30)
 
 # ================================
-# ▶ INICIO
+# ▶ INICIO (Manejo de Errores Críticos al inicio)
 # ================================
 if __name__ == "__main__":
-    api = DerivAPI(DERIV_TOKEN, on_trade_result)
-    copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
+    try:
+        # 1. Inicializar APIs. Si DerivAPI falla, el bot se detendrá aquí.
+        api = DerivAPI(DERIV_TOKEN, on_trade_result)
+        copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
+        
+        # Notificación de éxito
+        send("✅ Conexión a Deriv exitosa. Iniciando hilos de análisis y watchdog.") 
 
-    hilo = threading.Thread(target=analizar)
-    hilo.daemon = True
-    hilo.start()
+        # 2. Iniciar hilos
+        hilo = threading.Thread(target=analizar)
+        hilo.daemon = True
+        hilo.start()
 
-    hilo_watchdog = threading.Thread(target=watchdog)
-    hilo_watchdog.daemon = True
-    hilo_watchdog.start()
+        hilo_watchdog = threading.Thread(target=watchdog)
+        hilo_watchdog.daemon = True
+        hilo_watchdog.start()
+
+    except Exception as e:
+        # 3. Manejo de error crítico en el inicio
+        error_msg = f"❌ ERROR CRÍTICO AL INICIAR: {e}. Bot detenido."
+        print(error_msg)
+        send(error_msg) # Envía el error a Telegram si el TOKEN de Telegram es válido
 
     while True:
         time.sleep(300)
