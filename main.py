@@ -1,7 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.5 FINAL OPERATIVO (RSI 14 + EMA 50 + Volumen Suave)
-# PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
-# SOLO HABLA EN HORARIO | AUTO-REINICIO + ALERTAS DE CAÍDA
+# CRYPTOSNIPER FX — v15.6 FINAL OPERATIVO
+# RSI 14 + EMA 50 + Volumen Suave + SILENCIO TOTAL FUERA DE HORARIO
 # =============================================================
 
 from keep_alive import keep_alive
@@ -184,7 +183,7 @@ def calcular_rsi(candles, period=14):
         avg_loss = (avg_loss * (period - 1) + perdidas[i]) / period
     
     if avg_loss == 0:
-        return 100.0 # Sobrevendido extremo o fuerte tendencia
+        return 100.0
         
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
@@ -295,6 +294,7 @@ def ejecutar_trade(asset, direction, price):
 # 🔄 LOOP PRINCIPAL (SOLO EN HORARIO)
 # ================================
 def analizar():
+    # Este mensaje solo se envía si el bot inicia DENTRO de horario
     if sesion_activa():
         send("✅ BOT ACTIVADO — SOLO HABLA EN HORARIO")
         actualizar_estado("Activo modo horario ✅")
@@ -303,39 +303,45 @@ def analizar():
         try:
             actualizar_latido()
 
-            # 🔕 SILENCIO TOTAL FUERA DE HORARIO
-            if not sesion_activa():
-                time.sleep(120)
-                continue
+            if sesion_activa():
+                # 🧠 MODO ACTIVO (Dentro de horario)
+                
+                # Se envía el mensaje de análisis
+                send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
 
-            send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
+                for asset in SYMBOLS:
+                    v5 = obtener_velas(asset, 5)
+                    v1 = obtener_velas(asset, 1)
 
-            for asset in SYMBOLS:
-                v5 = obtener_velas(asset, 5)
-                v1 = obtener_velas(asset, 1)
+                    # Aseguramos tener suficientes velas para indicadores
+                    if not v5 or not v1 or len(v5) < 50 or len(v1) < 15: 
+                        continue
 
-                # Aseguramos tener suficientes velas para EMA 50 (50) y RSI 14 (15)
-                if not v5 or not v1 or len(v5) < 50 or len(v1) < 15: 
-                    continue
+                    fase, direction = detectar_fase(v5, v1)
 
-                fase, direction = detectar_fase(v5, v1)
+                    precio_actual = v1[-1][3]
 
-                precio_actual = v1[-1][3]
+                    if fase == "PRE" and not prealertas.get(asset):
+                        send(f"🟡 <b>PRE-ALERTA</b>\n{asset} | {direction}\nEsperando confirmación...")
+                        prealertas[asset] = direction
 
-                if fase == "PRE" and not prealertas.get(asset):
-                    send(f"🟡 <b>PRE-ALERTA</b>\n{asset} | {direction}\nEsperando confirmación...")
-                    prealertas[asset] = direction
+                    if fase == "ENTRADA":
+                        ejecutar_trade(asset, direction, precio_actual) 
+                        prealertas[asset] = None
 
-                if fase == "ENTRADA":
-                    ejecutar_trade(asset, direction, precio_actual) 
-                    prealertas[asset] = None
+                # Analiza cada 2 minutos (120 segundos)
+                time.sleep(120) 
 
-            time.sleep(120)
+            else:
+                # 🔕 MODO SILENCIO TOTAL (Fuera de horario)
+                # Duerme 1 hora (3600 segundos) para ahorrar recursos de Render.
+                time.sleep(3600) 
 
         except Exception as e:
             if sesion_activa():
                 send(f"⚠️ Error crítico: {e}")
             time.sleep(30)
+
 
 # ================================
 # ▶ INICIO (Manejo de Errores Críticos al inicio)
