@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.4 FINAL OPERATIVO (EMA 50 + Volumen Suave + Reset Diario)
+# CRYPTOSNIPER FX — v15.5 FINAL OPERATIVO (RSI 14 + EMA 50 + Volumen Suave)
 # PRE-ALERTA + AUTO-ENTRADA | EUR/USD + XAU/USD
 # SOLO HABLA EN HORARIO | AUTO-REINICIO + ALERTAS DE CAÍDA
 # =============================================================
@@ -118,7 +118,8 @@ def on_trade_result(result):
 # ================================
 def obtener_velas(asset, resol):
     symbol = SYMBOLS[asset]
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&exchange=FOREX&outputsize=100&apikey={TWELVE_API_KEY}" # Pedimos más velas para EMA 50
+    # Se piden 100 velas para calcular correctamente la EMA 50 y el RSI 14
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&exchange=FOREX&outputsize=100&apikey={TWELVE_API_KEY}" 
 
     try:
         r = requests.get(url, timeout=10).json()
@@ -146,84 +147,104 @@ def obtener_velas(asset, resol):
     return velas
 
 # ================================
-# 📐 CÁLCULO DE EMA
+# 📐 CÁLCULO DE INDICADORES
 # ================================
 def calcular_ema(candles, period):
-    """Calcula la EMA de un conjunto de velas."""
     if len(candles) < period:
         return None
-    
-    # Extraemos solo los precios de cierre (índice 3)
     cierre = [c[3] for c in candles]
-
-    # Constante de suavizado (K)
     k = 2 / (period + 1)
-    
-    # Primer valor de EMA es el SMA (Simple Moving Average)
     ema = sum(cierre[:period]) / period
-    
-    # Calcular EMA para el resto de los datos
     for price in cierre[period:]:
         ema = (price * k) + (ema * (1 - k))
-        
     return ema
 
+def calcular_rsi(candles, period=14):
+    if len(candles) < period + 1: # Necesitamos N + 1 velas
+        return None
+        
+    cierres = [c[3] for c in candles]
+    
+    # Calcular ganancias y pérdidas
+    ganancias = []
+    perdidas = []
+    
+    for i in range(1, len(cierres)):
+        cambio = cierres[i] - cierres[i-1]
+        ganancias.append(max(0, cambio))
+        perdidas.append(max(0, -cambio))
+
+    # Primer promedio de ganancias/pérdidas (SMA inicial)
+    avg_gain = sum(ganancias[:period]) / period
+    avg_loss = sum(perdidas[:period]) / period
+    
+    # RSI: smoothed average
+    for i in range(period, len(ganancias)):
+        avg_gain = (avg_gain * (period - 1) + ganancias[i]) / period
+        avg_loss = (avg_loss * (period - 1) + perdidas[i]) / period
+    
+    if avg_loss == 0:
+        return 100.0 # Sobrevendido extremo o fuerte tendencia
+        
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 # ================================
-# 🔍 DETECCIÓN DE FASES (EMA 50 + Volumen Suave)
+# 🔍 DETECCIÓN DE FASES (EMA 50 + RSI 14 + Volumen Suave)
 # ================================
 def detectar_fase(v5, v1):
     try:
-        # Extraemos 10 velas de 5m para contexto
+        # Extraemos las velas necesarias
         o5, h5, l5, c5, v5v = zip(*v5[-10:])
-        # Extraemos 3 velas de 1m para ruptura/confirmación
         o1, h1, l1, c1, v1v = zip(*v1[-3:]) 
 
         # 1. FILTRO DE TENDENCIA (EMA 50 en 5m)
         ema50 = calcular_ema(v5, 50)
         
-        # Si no hay suficientes velas para la EMA, no operamos.
         if ema50 is None:
-            return "NADA" 
+            return "NADA", None 
 
-        # Precio de Cierre actual de 5m
         precio_cierre_5m = c5[-1]
         
-        # Determinamos la dirección y el contexto
+        # 2. FILTRO DE FUERZA (RSI 14 en 1m)
+        rsi14 = calcular_rsi(v1, 14)
+        if rsi14 is None:
+            return "NADA", None
+            
+        # 3. Lógica de Dirección
         if precio_cierre_5m > ema50:
             # Tendencia alcista: solo buscamos BUY
-            tendencia_ok = True
             direction = "BUY"
             
-            # Contexto: Ruptura alcista
+            # FILTRO RSI: No sobrecomprado (RSI < 70)
+            if rsi14 >= 70:
+                return "NADA", None 
+            
+            # Contexto/Ruptura/Confirmación
             contexto = precio_cierre_5m > h5[-2]
-            
-            # Ruptura en 1m: Vela [-2] rompe al alza
             ruptura = c1[-2] > h1[-3] 
-            
-            # Confirmación: Vela [-1] cierra al alza
             confirmacion = c1[-1] > c1[-2]
             
         elif precio_cierre_5m < ema50:
             # Tendencia bajista: solo buscamos SELL
-            tendencia_ok = True
             direction = "SELL"
             
-            # Contexto: Ruptura bajista
+            # FILTRO RSI: No sobrevendido (RSI > 30)
+            if rsi14 <= 30:
+                return "NADA", None
+            
+            # Contexto/Ruptura/Confirmación
             contexto = precio_cierre_5m < l5[-2]
-            
-            # Ruptura en 1m: Vela [-2] rompe a la baja
             ruptura = c1[-2] < l1[-3] 
-            
-            # Confirmación: Vela [-1] cierra a la baja
             confirmacion = c1[-1] < c1[-2]
             
         else:
             # Precio cerca de la EMA o sin tendencia clara
-            return "NADA" 
+            return "NADA", None
             
-        # 2. FILTRO DE VOLUMEN SUAVE
+        # 4. FILTRO DE VOLUMEN SUAVE
         if len(v1) >= 10:
-             # v1 es la lista completa de tuplas. Extraemos el volumen (índice 4) de las 9 velas anteriores de 1m
              volumenes_largos = [vela[4] for vela in v1[-10:-1]] 
              volumen_promedio_largo = sum(volumenes_largos) / 9
              volumen_actual = v1[-1][4]
@@ -231,12 +252,12 @@ def detectar_fase(v5, v1):
         else:
              volumen_suficiente = False
 
-        # 3. VERIFICACIÓN DE FASES
-        if contexto and ruptura and not confirmacion and tendencia_ok:
-            return "PRE", direction # Devolvemos la dirección junto con la fase
+        # 5. VERIFICACIÓN DE FASES
+        if contexto and ruptura and not confirmacion:
+            return "PRE", direction 
 
-        if contexto and ruptura and confirmacion and volumen_suficiente and tendencia_ok: 
-            return "ENTRADA", direction # Devolvemos la dirección junto con la fase
+        if contexto and ruptura and confirmacion and volumen_suficiente: 
+            return "ENTRADA", direction 
 
         return "NADA", None
 
@@ -251,13 +272,12 @@ prealertas = {}
 # ================================
 # 🚀 EJECUTAR TRADE
 # ================================
-def ejecutar_trade(asset, direction, price): # Acepta la dirección
+def ejecutar_trade(asset, direction, price):
     if not risk.puede_operar():
         send("🛑 Bot en pausa por racha negativa")
         return
 
     symbol = SYMBOLS[asset]
-    # direction ya viene de detectar_fase
 
     api.buy(symbol, direction, amount=1, duration=1)
     risk.registrar_trade()
@@ -294,22 +314,21 @@ def analizar():
                 v5 = obtener_velas(asset, 5)
                 v1 = obtener_velas(asset, 1)
 
-                # Aseguramos tener al menos 50 velas para calcular la EMA 50
-                if not v5 or not v1 or len(v5) < 50: 
+                # Aseguramos tener suficientes velas para EMA 50 (50) y RSI 14 (15)
+                if not v5 or not v1 or len(v5) < 50 or len(v1) < 15: 
                     continue
 
-                fase, direction = detectar_fase(v5, v1) # Recibe la dirección
+                fase, direction = detectar_fase(v5, v1)
 
                 precio_actual = v1[-1][3]
 
                 if fase == "PRE" and not prealertas.get(asset):
                     send(f"🟡 <b>PRE-ALERTA</b>\n{asset} | {direction}\nEsperando confirmación...")
-                    prealertas[asset] = direction # Guardamos la dirección en la prealerta
+                    prealertas[asset] = direction
 
                 if fase == "ENTRADA":
-                    # Usamos la dirección obtenida de la fase
                     ejecutar_trade(asset, direction, precio_actual) 
-                    prealertas[asset] = None # Limpiamos la prealerta
+                    prealertas[asset] = None
 
             time.sleep(120)
 
