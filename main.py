@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.6 FINAL OPERATIVO (CORRECCIÓN DE SILENCIO)
-# RSI 14 + EMA 50 + Volumen Suave + SILENCIO TOTAL FUERA DE HORARIO
+# CRYPTOSNIPER FX — v15.7 FINAL OPERATIVO (FRECUENCIA AUMENTADA)
+# SIN FILTRO DE VOLUMEN en la entrada. SOLO habla en horario.
 # =============================================================
 
 from keep_alive import keep_alive
@@ -187,7 +187,7 @@ def calcular_rsi(candles, period=14):
     return rsi
 
 # ================================
-# 🔍 DETECCIÓN DE FASES (EMA 50 + RSI 14 + Volumen Suave)
+# 🔍 DETECCIÓN DE FASES (VOLUMEN ELIMINADO DE LA ENTRADA)
 # ================================
 def detectar_fase(v5, v1):
     try:
@@ -236,7 +236,7 @@ def detectar_fase(v5, v1):
         else:
             return "NADA", None
             
-        # 4. FILTRO DE VOLUMEN SUAVE
+        # 4. FILTRO DE VOLUMEN SUAVE (Calculado pero IGNORADO en la ENTRADA)
         if len(v1) >= 10:
              volumenes_largos = [vela[4] for vela in v1[-10:-1]] 
              volumen_promedio_largo = sum(volumenes_largos) / 9
@@ -249,7 +249,8 @@ def detectar_fase(v5, v1):
         if contexto and ruptura and not confirmacion:
             return "PRE", direction 
 
-        if contexto and ruptura and confirmacion and volumen_suficiente: 
+        # AHORA SOLO REQUIERE CONTEXTO, RUPTURA Y CONFIRMACIÓN. (VOLUMEN ELIMINADO)
+        if contexto and ruptura and confirmacion: 
             return "ENTRADA", direction 
 
         return "NADA", None
