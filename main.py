@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.8 FINAL OPERATIVO (ESTABILIDAD + FRECUENCIA)
-# SIN FILTRO DE VOLUMEN en la entrada. RECONEXIÓN AUTOMÁTICA.
+# CRYPTOSNIPER FX — v15.9 FINAL OPERATIVO (ESTABILIDAD TOTAL + FRECUENCIA)
+# SIN FILTRO DE VOLUMEN en la entrada. RECONEXIÓN Y EJECUCIÓN SEGURA.
 # =============================================================
 
 from keep_alive import keep_alive
@@ -45,7 +45,7 @@ risk = RiskManager(
     balance_inicial=27,
     max_loss_day=5,
     max_trades_day=15,
-    timezone="America/Mexico_City" # Se añade la zona horaria
+    timezone="America/Mexico_City"
 )
 
 # ================================
@@ -237,7 +237,6 @@ def detectar_fase(v5, v1):
             return "NADA", None
             
         # 4. FILTRO DE VOLUMEN SUAVE (Calculado pero IGNORADO en la ENTRADA)
-        # Se mantiene el código de volumen para referencia, pero se ignora.
         if len(v1) >= 10:
              volumenes_largos = [vela[4] for vela in v1[-10:-1]] 
              volumen_promedio_largo = sum(volumenes_largos) / 9
@@ -265,7 +264,7 @@ def detectar_fase(v5, v1):
 prealertas = {}
 
 # ================================
-# 🚀 EJECUTAR TRADE
+# 🚀 EJECUTAR TRADE (Con Manejo de Errores de Conexión)
 # ================================
 def ejecutar_trade(asset, direction, price):
     if not risk.puede_operar():
@@ -274,8 +273,15 @@ def ejecutar_trade(asset, direction, price):
 
     symbol = SYMBOLS[asset]
 
-    # La función api.buy debe estar definida en deriv_api.py y debe manejar la dirección
-    api.buy(symbol, direction, amount=1, duration=1) 
+    try:
+        # INTENTA EJECUTAR LA ORDEN. Si falla, el 'except' se encargará.
+        api.buy(symbol, direction, amount=1, duration=1)
+    except Exception as e:
+        # Si la orden falla, envía un mensaje de error y TERMINA la función aquí.
+        send(f"❌ FALLO DE EJECUCIÓN: No se pudo colocar la orden {direction} en {asset}. Error: {e}")
+        return # Detiene la función, NO se registra ni se envía el mensaje de éxito
+
+    # Si llegamos aquí, la orden SÍ se ejecutó. Ahora procedemos al registro y notificación.
     risk.registrar_trade()
 
     guardar_macro({
@@ -286,6 +292,7 @@ def ejecutar_trade(asset, direction, price):
     })
 
     send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
+
 
 # ================================
 # 🔄 LOOP PRINCIPAL (SOLO EN HORARIO)
@@ -339,6 +346,7 @@ def analizar():
                 send(f"⚠️ Error crítico: {e}")
             
             # 🚨 LÓGICA DE REINICIO POR DESCONEXIÓN (SOLUCIÓN AL ERROR DE CONEXIÓN CERRADA)
+            # Esto se activa si el error es 'Connection is already closed'
             if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e):
                 send("🔴 Error de Conexión Crítico: REINICIO AUTOMÁTICO ACTIVADO")
                 time.sleep(3)
