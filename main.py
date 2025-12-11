@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.7 FINAL OPERATIVO (FRECUENCIA AUMENTADA)
-# SIN FILTRO DE VOLUMEN en la entrada. SOLO habla en horario.
+# CRYPTOSNIPER FX — v15.8 FINAL OPERATIVO (ESTABILIDAD + FRECUENCIA)
+# SIN FILTRO DE VOLUMEN en la entrada. RECONEXIÓN AUTOMÁTICA.
 # =============================================================
 
 from keep_alive import keep_alive
@@ -39,7 +39,7 @@ SYMBOLS = {
 }
 
 # ================================
-# 📌 RISK MANAGER (Inicializado con zona horaria)
+# 📌 RISK MANAGER (Inicializado con zona horaria para reseteo diario)
 # ================================
 risk = RiskManager(
     balance_inicial=27,
@@ -237,6 +237,7 @@ def detectar_fase(v5, v1):
             return "NADA", None
             
         # 4. FILTRO DE VOLUMEN SUAVE (Calculado pero IGNORADO en la ENTRADA)
+        # Se mantiene el código de volumen para referencia, pero se ignora.
         if len(v1) >= 10:
              volumenes_largos = [vela[4] for vela in v1[-10:-1]] 
              volumen_promedio_largo = sum(volumenes_largos) / 9
@@ -273,7 +274,8 @@ def ejecutar_trade(asset, direction, price):
 
     symbol = SYMBOLS[asset]
 
-    api.buy(symbol, direction, amount=1, duration=1)
+    # La función api.buy debe estar definida en deriv_api.py y debe manejar la dirección
+    api.buy(symbol, direction, amount=1, duration=1) 
     risk.registrar_trade()
 
     guardar_macro({
@@ -335,35 +337,15 @@ def analizar():
         except Exception as e:
             if sesion_activa():
                 send(f"⚠️ Error crítico: {e}")
-            time.sleep(30)
+            
+            # 🚨 LÓGICA DE REINICIO POR DESCONEXIÓN (SOLUCIÓN AL ERROR DE CONEXIÓN CERRADA)
+            if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e):
+                send("🔴 Error de Conexión Crítico: REINICIO AUTOMÁTICO ACTIVADO")
+                time.sleep(3)
+                os._exit(1) # Forzar el reinicio completo de Render
+                
+            time.sleep(30) # Espera 30 segundos antes del siguiente intento si no fue un error fatal
 
 
 # ================================
-# ▶ INICIO (Manejo de Errores Críticos al inicio)
-# ================================
-if __name__ == "__main__":
-    try:
-        # 1. Inicializar APIs.
-        api = DerivAPI(DERIV_TOKEN, on_trade_result)
-        copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
-        
-        # Notificación de éxito
-        send("✅ Conexión a Deriv exitosa. Iniciando hilos de análisis y watchdog.") 
-
-        # 2. Iniciar hilos
-        hilo = threading.Thread(target=analizar)
-        hilo.daemon = True
-        hilo.start()
-
-        hilo_watchdog = threading.Thread(target=watchdog)
-        hilo_watchdog.daemon = True
-        hilo_watchdog.start()
-
-    except Exception as e:
-        # 3. Manejo de error crítico en el inicio
-        error_msg = f"❌ ERROR CRÍTICO AL INICIAR: {e}. Bot detenido."
-        print(error_msg)
-        send(error_msg) 
-
-    while True:
-        time.sleep(300)
+# ▶ IN
