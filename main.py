@@ -348,4 +348,31 @@ def analizar():
 
 
 # ================================
-# ▶ IN
+# ▶ INICIO (Manejo de Errores Críticos al inicio)
+# ================================
+if __name__ == "__main__":
+    try:
+        # 1. Inicializar APIs.
+        api = DerivAPI(DERIV_TOKEN, on_trade_result)
+        copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
+        
+        # Notificación de éxito
+        send("✅ Conexión a Deriv exitosa. Iniciando hilos de análisis y watchdog.") 
+
+        # 2. Iniciar hilos
+        hilo = threading.Thread(target=analizar)
+        hilo.daemon = True
+        hilo.start()
+
+        hilo_watchdog = threading.Thread(target=watchdog)
+        hilo_watchdog.daemon = True
+        hilo_watchdog.start()
+
+    except Exception as e:
+        # 3. Manejo de error crítico en el inicio
+        error_msg = f"❌ ERROR CRÍTICO AL INICIAR: {e}. Bot detenido."
+        print(error_msg)
+        send(error_msg) 
+
+    while True:
+        time.sleep(300)
