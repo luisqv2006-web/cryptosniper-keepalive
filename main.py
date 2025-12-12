@@ -1,6 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v15.9 FINAL OPERATIVO (ESTABILIDAD TOTAL + FRECUENCIA)
-# SIN FILTRO DE VOLUMEN en la entrada. RECONEXIÓN Y EJECUCIÓN SEGURA.
+# CRYPTOSNIPER FX — v16.0 FINAL OPERATIVO (RECONEXIÓN Y REINTENTO SEGURO)
+# SIN FILTRO DE VOLUMEN en la entrada. EJECUCIÓN CON REINTENTO AUTOMÁTICO.
 # =============================================================
 
 from keep_alive import keep_alive
@@ -264,34 +264,63 @@ def detectar_fase(v5, v1):
 prealertas = {}
 
 # ================================
-# 🚀 EJECUTAR TRADE (Con Manejo de Errores de Conexión)
+# 🚀 EJECUTAR TRADE (Con Manejo de Errores y Reintento por Conexión)
 # ================================
 def ejecutar_trade(asset, direction, price):
+    global api # Necesitamos acceder a la variable global 'api'
+
     if not risk.puede_operar():
         send("🛑 Bot en pausa por racha negativa")
         return
 
     symbol = SYMBOLS[asset]
 
-    try:
-        # INTENTA EJECUTAR LA ORDEN. Si falla, el 'except' se encargará.
-        api.buy(symbol, direction, amount=1, duration=1)
-    except Exception as e:
-        # Si la orden falla, envía un mensaje de error y TERMINA la función aquí.
-        send(f"❌ FALLO DE EJECUCIÓN: No se pudo colocar la orden {direction} en {asset}. Error: {e}")
-        return # Detiene la función, NO se registra ni se envía el mensaje de éxito
+    def _intentar_compra(is_reintent):
+        try:
+            api.buy(symbol, direction, amount=1, duration=1)
+            return True
+        except Exception as e:
+            if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e):
+                # Es un error de conexión, intentar reconectar y reintentar
+                if not is_reintent:
+                    send(f"⚠️ Primer fallo de conexión en {asset}. Intentando reconectar y reintentar...")
+                    return "REINTENTAR"
+            
+            # Si falla por segunda vez o es otro error, reportar
+            send(f"❌ FALLO DE EJECUCIÓN ({'Reintento' if is_reintent else 'Inicial'}): No se pudo colocar la orden {direction} en {asset}. Error: {e}")
+            return False
 
-    # Si llegamos aquí, la orden SÍ se ejecutó. Ahora procedemos al registro y notificación.
-    risk.registrar_trade()
+    # 1. Primer Intento
+    resultado = _intentar_compra(is_reintent=False)
 
-    guardar_macro({
-        "activo": asset,
-        "direccion": direction,
-        "precio": price,
-        "hora": str(datetime.now(mx))
-    })
+    # 2. Reintento si el fallo fue por conexión
+    if resultado == "REINTENTAR":
+        try:
+            # Reconectar la API
+            # Se usa el token y el callback para recrear la instancia.
+            api = DerivAPI(DERIV_TOKEN, on_trade_result) 
+            time.sleep(1) # Pequeña pausa para asegurar la conexión
+            
+            # Segundo Intento
+            resultado = _intentar_compra(is_reintent=True)
+            
+        except Exception as e:
+            send(f"❌ FALLO CRÍTICO DE RECONEXIÓN: {e}. Orden perdida.")
+            resultado = False
 
-    send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
+
+    # 3. Si fue exitoso (en el primer intento o en el reintento)
+    if resultado is True:
+        risk.registrar_trade()
+
+        guardar_macro({
+            "activo": asset,
+            "direccion": direction,
+            "precio": price,
+            "hora": str(datetime.now(mx))
+        })
+
+        send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
 
 
 # ================================
@@ -346,7 +375,6 @@ def analizar():
                 send(f"⚠️ Error crítico: {e}")
             
             # 🚨 LÓGICA DE REINICIO POR DESCONEXIÓN (SOLUCIÓN AL ERROR DE CONEXIÓN CERRADA)
-            # Esto se activa si el error es 'Connection is already closed'
             if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e):
                 send("🔴 Error de Conexión Crítico: REINICIO AUTOMÁTICO ACTIVADO")
                 time.sleep(3)
