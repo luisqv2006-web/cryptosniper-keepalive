@@ -1,8 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.0 FINAL OPERATIVO (RECONEXIÓN Y REINTENTO SEGURO)
-# SIN FILTRO DE VOLUMEN en la entrada. EJECUCIÓN CON REINTENTO AUTOMÁTICO.
+# CRYPTOSNIPER FX — v16.1 FINAL (PRUEBA DIAGNÓSTICA DE CONEXIÓN A DEMO)
 # =============================================================
-
 from keep_alive import keep_alive
 keep_alive()
 
@@ -389,7 +387,12 @@ def analizar():
 if __name__ == "__main__":
     try:
         # 1. Inicializar APIs.
-        api = DerivAPI(DERIV_TOKEN, on_trade_result)
+        # *** CAMBIO CRÍTICO DE PRUEBA: FORZAR A USAR EL ENTORNO DEMO (V16.1) ***
+        # Usamos el endpoint oficial de producción, pero en algunos casos, esto puede forzar a usar el entorno Demo
+        # si la cuenta real es problemática. Si esto funciona, el problema es la cuenta real.
+        api = DerivAPI(DERIV_TOKEN, on_trade_result, endpoint="wss://ws.derivws.com/websockets/v3?app_id=1089") 
+        # *** FIN CAMBIO CRÍTICO DE PRUEBA ***
+
         copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
         
         # Notificación de éxito
