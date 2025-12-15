@@ -1,6 +1,7 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.1 FINAL (PRUEBA DIAGNÓSTICA DE CONEXIÓN A DEMO)
+# CRYPTOSNIPER FX — v16.2 FINAL OPERATIVO (ESTABILIDAD CON deriv_api.py MODIFICADO)
 # =============================================================
+
 from keep_alive import keep_alive
 keep_alive()
 
@@ -14,7 +15,7 @@ import os
 from auto_copy import AutoCopy
 from stats import registrar_operacion
 from risk_manager import RiskManager
-from deriv_api import DerivAPI
+from deriv_api import DerivAPI # Esta clase ahora usa la URL estable
 from firebase_cache import actualizar_estado, guardar_macro
 
 # ================================
@@ -278,10 +279,11 @@ def ejecutar_trade(asset, direction, price):
             api.buy(symbol, direction, amount=1, duration=1)
             return True
         except Exception as e:
-            if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e):
+            # Captura errores conocidos de conexión o rechazo de API
+            if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e) or "Error al comprar" in str(e):
                 # Es un error de conexión, intentar reconectar y reintentar
                 if not is_reintent:
-                    send(f"⚠️ Primer fallo de conexión en {asset}. Intentando reconectar y reintentar...")
+                    send(f"⚠️ Primer fallo de ejecución en {asset}. Intentando reconectar y reintentar...")
                     return "REINTENTAR"
             
             # Si falla por segunda vez o es otro error, reportar
@@ -294,8 +296,7 @@ def ejecutar_trade(asset, direction, price):
     # 2. Reintento si el fallo fue por conexión
     if resultado == "REINTENTAR":
         try:
-            # Reconectar la API
-            # Se usa el token y el callback para recrear la instancia.
+            # Reconectar la API, usando la nueva lógica de la clase DerivAPI
             api = DerivAPI(DERIV_TOKEN, on_trade_result) 
             time.sleep(1) # Pequeña pausa para asegurar la conexión
             
@@ -387,12 +388,9 @@ def analizar():
 if __name__ == "__main__":
     try:
         # 1. Inicializar APIs.
-        # *** CAMBIO CRÍTICO DE PRUEBA: FORZAR A USAR EL ENTORNO DEMO (V16.1) ***
-        # Usamos el endpoint oficial de producción, pero en algunos casos, esto puede forzar a usar el entorno Demo
-        # si la cuenta real es problemática. Si esto funciona, el problema es la cuenta real.
-        api = DerivAPI(DERIV_TOKEN, on_trade_result, endpoint="wss://ws.derivws.com/websockets/v3?app_id=1089") 
-        # *** FIN CAMBIO CRÍTICO DE PRUEBA ***
-
+        # Usa la nueva clase DerivAPI que apunta a la URL estable (ws.derivws.com)
+        api = DerivAPI(DERIV_TOKEN, on_trade_result) 
+        
         copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
         
         # Notificación de éxito
