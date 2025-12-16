@@ -104,12 +104,12 @@ class DerivAPI:
                 "contract_type": contract_type,
                 "currency": "USD",
                 "duration": duration,
-                "duration_unit": "m", # M = Minutes (para operar en M1)
+                "duration_unit": "m", 
                 "symbol": symbol
             }
         }
         self.ws.send(json.dumps(payload))
-        time.sleep(2) # Pausa para esperar la respuesta de la compra
+        time.sleep(2) 
 
     def subscribe_to_transaction(self, contract_id):
         """Suscribe al bot al resultado de un contrato."""
