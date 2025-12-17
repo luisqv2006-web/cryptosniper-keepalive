@@ -1,7 +1,6 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.2 FINAL OPERATIVO (ESTABILIDAD CON deriv_api.py MODIFICADO)
+# CRYPTOSNIPER FX — v16.3 TOTAL LOCKDOWN (EDICIÓN DEFINITIVA)
 # =============================================================
-
 from keep_alive import keep_alive
 keep_alive()
 
@@ -15,7 +14,7 @@ import os
 from auto_copy import AutoCopy
 from stats import registrar_operacion
 from risk_manager import RiskManager
-from deriv_api import DerivAPI # Esta clase ahora usa la URL estable
+from deriv_api import DerivAPI 
 from firebase_cache import actualizar_estado, guardar_macro
 
 # ================================
@@ -32,18 +31,15 @@ mx = pytz.timezone("America/Mexico_City")
 # ================================
 # 🔥 ACTIVOS
 # ================================
-SYMBOLS = {
-    "EUR/USD": "EUR/USD",
-    "XAU/USD": "XAU/USD"
-}
+SYMBOLS = {"EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD"}
 
 # ================================
-# 📌 RISK MANAGER (Inicializado con zona horaria para reseteo diario)
+# 📌 RISK MANAGER (Ajustado a saldo real de $27.08)
 # ================================
 risk = RiskManager(
-    balance_inicial=27,
-    max_loss_day=5,
-    max_trades_day=15,
+    balance_inicial=27.08, 
+    max_loss_day=5, 
+    max_trades_day=15, 
     timezone="America/Mexico_City"
 )
 
@@ -52,364 +48,150 @@ risk = RiskManager(
 # ================================
 def send(msg):
     try:
-        requests.post(API, json={
-            "chat_id": CHAT_ID,
-            "text": msg,
-            "parse_mode": "HTML"
-        }, timeout=10)
-    except:
+        requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+    except: 
         pass
 
 # ================================
-# ⏰ SESIONES FUERTES (HORA MÉXICO)
-# Londres: 02:00 – 05:00
-# Nueva York: 07:00 – 10:00
+# ⏰ SESIONES (HORA MÉXICO)
 # ================================
 def sesion_activa():
     h = datetime.now(mx).hour
     return (2 <= h <= 5) or (7 <= h <= 10)
 
 # ================================
-# 🛡️ ANTI-CAÍDAS + AUTO-REINICIO
-# ================================
-ULTIMA_SEÑAL = time.time()
-
-def actualizar_latido():
-    global ULTIMA_SEÑAL
-    ULTIMA_SEÑAL = time.time()
-
-def watchdog():
-    while True:
-        try:
-            diferencia = time.time() - ULTIMA_SEÑAL
-
-            # 🔴 Si pasan 6 min sin actividad → reinicio forzado
-            if diferencia > 360:
-                send("🔴 BOT CONGELADO — REINICIO AUTOMÁTICO ACTIVADO")
-                time.sleep(3)
-                os._exit(1)
-
-            # ✅ SOLO avisa que está vivo dentro del horario
-            if sesion_activa():
-                send("🟢 Bot vivo | Watchdog OK")
-
-        except:
-            pass
-
-        time.sleep(300)  # cada 5 min
-
-# ================================
 # 📊 RESULTADOS DERIV
 # ================================
 def on_trade_result(result):
     if result == "WIN":
-        send("✅ <b>WIN confirmado</b>")
+        send("✅ <b>WIN confirmado en el servidor</b>")
         risk.registrar_win()
     else:
-        send("❌ <b>LOSS registrado</b>")
+        send("❌ <b>LOSS confirmado en el servidor</b>")
         risk.registrar_perdida()
-
-    registrar_operacion("AUTO", 0, result)
+    registrar_operacion("AUTO", 1, result)
 
 # ================================
-# 📊 OBTENER VELAS
+# 📊 OBTENER VELAS (TwelveData)
 # ================================
 def obtener_velas(asset, resol):
-    symbol = SYMBOLS[asset]
-    # Se piden 100 velas para calcular correctamente la EMA 50 y el RSI 14
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={resol}min&exchange=FOREX&outputsize=100&apikey={TWELVE_API_KEY}" 
-
+    url = f"https://api.twelvedata.com/time_series?symbol={SYMBOLS[asset]}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
     try:
         r = requests.get(url, timeout=10).json()
-    except:
+        if "values" not in r: return None
+        data = r["values"]
+        data.reverse()
+        return [(float(v["open"]), float(v["high"]), float(v["low"]), float(v["close"]), float(v.get("volume", 1))) for v in data]
+    except: 
         return None
-
-    if "values" not in r:
-        return None
-
-    data = r["values"]
-    data.reverse()
-
-    velas = []
-    for vela in data:
-        try:
-            o = float(vela["open"])
-            h = float(vela["high"])
-            l = float(vela["low"])
-            c = float(vela["close"])
-            v = float(vela["volume"]) if "volume" in vela else 1.0
-            velas.append((o, h, l, c, v))
-        except:
-            continue
-
-    return velas
 
 # ================================
-# 📐 CÁLCULO DE INDICADORES
+# 📐 INDICADORES TÉCNICOS
 # ================================
 def calcular_ema(candles, period):
-    if len(candles) < period:
-        return None
+    if len(candles) < period: return None
     cierre = [c[3] for c in candles]
     k = 2 / (period + 1)
     ema = sum(cierre[:period]) / period
-    for price in cierre[period:]:
+    for price in cierre[period:]: 
         ema = (price * k) + (ema * (1 - k))
     return ema
 
 def calcular_rsi(candles, period=14):
-    if len(candles) < period + 1:
-        return None
-        
+    if len(candles) < period + 1: return None
     cierres = [c[3] for c in candles]
-    
-    ganancias = []
-    perdidas = []
-    
+    ganancias, perdidas = [], []
     for i in range(1, len(cierres)):
         cambio = cierres[i] - cierres[i-1]
         ganancias.append(max(0, cambio))
         perdidas.append(max(0, -cambio))
-
     avg_gain = sum(ganancias[:period]) / period
     avg_loss = sum(perdidas[:period]) / period
-    
     for i in range(period, len(ganancias)):
         avg_gain = (avg_gain * (period - 1) + ganancias[i]) / period
         avg_loss = (avg_loss * (period - 1) + perdidas[i]) / period
-    
-    if avg_loss == 0:
-        return 100.0
-        
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    if avg_loss == 0: return 100.0
+    return 100 - (100 / (1 + (avg_gain / avg_loss)))
 
 # ================================
-# 🔍 DETECCIÓN DE FASES (VOLUMEN ELIMINADO DE LA ENTRADA)
+# 🔍 LÓGICA DE ENTRADA
 # ================================
 def detectar_fase(v5, v1):
-    try:
-        # Extraemos las velas necesarias
-        o5, h5, l5, c5, v5v = zip(*v5[-10:])
-        o1, h1, l1, c1, v1v = zip(*v1[-3:]) 
-
-        # 1. FILTRO DE TENDENCIA (EMA 50 en 5m)
-        ema50 = calcular_ema(v5, 50)
-        
-        if ema50 is None:
-            return "NADA", None 
-
-        precio_cierre_5m = c5[-1]
-        
-        # 2. FILTRO DE FUERZA (RSI 14 en 1m)
-        rsi14 = calcular_rsi(v1, 14)
-        if rsi14 is None:
-            return "NADA", None
-            
-        # 3. Lógica de Dirección
-        if precio_cierre_5m > ema50:
-            direction = "BUY"
-            
-            # FILTRO RSI: No sobrecomprado (RSI < 70)
-            if rsi14 >= 70:
-                return "NADA", None 
-            
-            # Contexto/Ruptura/Confirmación
-            contexto = precio_cierre_5m > h5[-2]
-            ruptura = c1[-2] > h1[-3] 
-            confirmacion = c1[-1] > c1[-2]
-            
-        elif precio_cierre_5m < ema50:
-            direction = "SELL"
-            
-            # FILTRO RSI: No sobrevendido (RSI > 30)
-            if rsi14 <= 30:
-                return "NADA", None
-            
-            # Contexto/Ruptura/Confirmación
-            contexto = precio_cierre_5m < l5[-2]
-            ruptura = c1[-2] < l1[-3] 
-            confirmacion = c1[-1] < c1[-2]
-            
-        else:
-            return "NADA", None
-            
-        # 4. FILTRO DE VOLUMEN SUAVE (Calculado pero IGNORADO en la ENTRADA)
-        if len(v1) >= 10:
-             volumenes_largos = [vela[4] for vela in v1[-10:-1]] 
-             volumen_promedio_largo = sum(volumenes_largos) / 9
-             volumen_actual = v1[-1][4]
-             volumen_suficiente = volumen_actual > volumen_promedio_largo
-        else:
-             volumen_suficiente = False
-
-        # 5. VERIFICACIÓN DE FASES
-        if contexto and ruptura and not confirmacion:
-            return "PRE", direction 
-
-        # AHORA SOLO REQUIERE CONTEXTO, RUPTURA Y CONFIRMACIÓN. (VOLUMEN ELIMINADO)
-        if contexto and ruptura and confirmacion: 
-            return "ENTRADA", direction 
-
-        return "NADA", None
-
-    except:
-        return "NADA", None
+    ema50 = calcular_ema(v5, 50)
+    rsi14 = calcular_rsi(v1, 14)
+    if not ema50 or not rsi14: return "NADA", None
+    
+    c5, c1 = v5[-1][3], v1[-1][3]
+    
+    # ESTRATEGIA: Cruce de EMA + RSI + Confirmación de Vela
+    if c5 > ema50 and rsi14 < 70:
+        if c5 > v5[-2][1] and c1 > v1[-2][3]: 
+            return "ENTRADA", "BUY"
+    elif c5 < ema50 and rsi14 > 30:
+        if c5 < v5[-2][2] and c1 < v1[-2][3]: 
+            return "ENTRADA", "SELL"
+    return "NADA", None
 
 # ================================
-# 🧠 PRE-ALERTAS
-# ================================
-prealertas = {}
-
-# ================================
-# 🚀 EJECUTAR TRADE (Con Manejo de Errores y Reintento por Conexión)
+# 🚀 EJECUTAR TRADE (Blindado)
 # ================================
 def ejecutar_trade(asset, direction, price):
-    global api # Necesitamos acceder a la variable global 'api'
-
-    if not risk.puede_operar():
-        send("🛑 Bot en pausa por racha negativa")
+    global api
+    if not risk.puede_operar(): 
+        send("🛑 Pausa por gestión de riesgo.")
         return
-
-    symbol = SYMBOLS[asset]
-
-    def _intentar_compra(is_reintent):
-        try:
-            api.buy(symbol, direction, amount=1, duration=1)
-            return True
-        except Exception as e:
-            # Captura errores conocidos de conexión o rechazo de API
-            if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e) or "Error al comprar" in str(e):
-                # Es un error de conexión, intentar reconectar y reintentar
-                if not is_reintent:
-                    send(f"⚠️ Primer fallo de ejecución en {asset}. Intentando reconectar y reintentar...")
-                    return "REINTENTAR"
-            
-            # Si falla por segunda vez o es otro error, reportar
-            send(f"❌ FALLO DE EJECUCIÓN ({'Reintento' if is_reintent else 'Inicial'}): No se pudo colocar la orden {direction} en {asset}. Error: {e}")
-            return False
-
-    # 1. Primer Intento
-    resultado = _intentar_compra(is_reintent=False)
-
-    # 2. Reintento si el fallo fue por conexión
-    if resultado == "REINTENTAR":
-        try:
-            # Reconectar la API, usando la nueva lógica de la clase DerivAPI
-            api = DerivAPI(DERIV_TOKEN, on_trade_result) 
-            time.sleep(1) # Pequeña pausa para asegurar la conexión
-            
-            # Segundo Intento
-            resultado = _intentar_compra(is_reintent=True)
-            
-        except Exception as e:
-            send(f"❌ FALLO CRÍTICO DE RECONEXIÓN: {e}. Orden perdida.")
-            resultado = False
-
-
-    # 3. Si fue exitoso (en el primer intento o en el reintento)
-    if resultado is True:
+    
+    send(f"⏳ Procesando {direction} en {asset}...")
+    try:
+        # Envío físico a la API de Deriv
+        api.buy(SYMBOLS[asset], direction, amount=1, duration=1)
+        
+        # Registro local
         risk.registrar_trade()
-
-        guardar_macro({
-            "activo": asset,
-            "direccion": direction,
-            "precio": price,
-            "hora": str(datetime.now(mx))
-        })
-
-        send(f"🔴 <b>ENTRADA REAL</b>\n{asset}\n{direction}\n${price}")
-
+        guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
+        
+        send(f"🔴 <b>ORDEN ENVIADA EXITOSAMENTE</b>\nActivo: {asset}\nOperación: {direction}\nSaldo objetivo: $27.08")
+    except Exception as e:
+        send(f"❌ <b>ERROR DE EJECUCIÓN:</b> {e}\nRevisando conexión...")
+        os._exit(1) # Forzar reinicio para limpiar el WebSocket
 
 # ================================
-# 🔄 LOOP PRINCIPAL (SOLO EN HORARIO)
+# 🔄 LOOP DE ANÁLISIS
 # ================================
 def analizar():
-    # Este mensaje solo se envía si el bot inicia DENTRO de horario
-    if sesion_activa():
-        send("✅ BOT ACTIVADO — SOLO HABLA EN HORARIO")
-        actualizar_estado("Activo modo horario ✅")
-
+    send("✅ <b>BOT SNIPER v16.3 ONLINE</b>\nMonitoreando EUR/USD y XAU/USD")
     while True:
         try:
-            actualizar_latido()
-
             if sesion_activa():
-                # 🧠 MODO ACTIVO (Dentro de horario)
-                
-                # Se envía el mensaje de análisis
-                send(f"🧠 Analizando EUR/USD y XAU/USD... {datetime.now(mx)}")
-
                 for asset in SYMBOLS:
-                    v5 = obtener_velas(asset, 5)
-                    v1 = obtener_velas(asset, 1)
-
-                    # Aseguramos tener suficientes velas para indicadores
-                    if not v5 or not v1 or len(v5) < 50 or len(v1) < 15: 
-                        continue
-
+                    v5, v1 = obtener_velas(asset, 5), obtener_velas(asset, 1)
+                    if not v5 or not v1: continue
+                    
                     fase, direction = detectar_fase(v5, v1)
-
-                    precio_actual = v1[-1][3]
-
-                    if fase == "PRE" and not prealertas.get(asset):
-                        send(f"🟡 <b>PRE-ALERTA</b>\n{asset} | {direction}\nEsperando confirmación...")
-                        prealertas[asset] = direction
-
                     if fase == "ENTRADA":
-                        ejecutar_trade(asset, direction, precio_actual) 
-                        prealertas[asset] = None
-
-                # Analiza cada 2 minutos (120 segundos)
-                time.sleep(120) 
-
+                        ejecutar_trade(asset, direction, v1[-1][3])
+                time.sleep(60) # Análisis cada minuto
             else:
-                # 🔕 MODO SILENCIO TOTAL (Fuera de horario)
-                # Duerme 1 hora (3600 segundos) para ahorrar recursos de Render.
-                time.sleep(3600) 
-
+                time.sleep(600) # Dormir 10 min fuera de horario
         except Exception as e:
-            if sesion_activa():
-                send(f"⚠️ Error crítico: {e}")
-            
-            # 🚨 LÓGICA DE REINICIO POR DESCONEXIÓN (SOLUCIÓN AL ERROR DE CONEXIÓN CERRADA)
-            if "closed" in str(e) or "reset" in str(e) or "EOF" in str(e):
-                send("🔴 Error de Conexión Crítico: REINICIO AUTOMÁTICO ACTIVADO")
-                time.sleep(3)
-                os._exit(1) # Forzar el reinicio completo de Render
-                
-            time.sleep(30) # Espera 30 segundos antes del siguiente intento si no fue un error fatal
-
+            print(f"Error en loop: {e}")
+            time.sleep(10)
 
 # ================================
-# ▶ INICIO (Manejo de Errores Críticos al inicio)
+# ▶ INICIO DEL SISTEMA
 # ================================
 if __name__ == "__main__":
     try:
-        # 1. Inicializar APIs.
-        # Usa la nueva clase DerivAPI que apunta a la URL estable (ws.derivws.com)
-        api = DerivAPI(DERIV_TOKEN, on_trade_result) 
+        # Inicialización con la nueva clase DerivAPI
+        api = DerivAPI(DERIV_TOKEN, on_trade_result)
         
-        copy_trader = AutoCopy(DERIV_TOKEN, stake=1, duration=1)
+        # Lanzar hilo de análisis
+        hilo_bot = threading.Thread(target=analizar, daemon=True)
+        hilo_bot.start()
         
-        # Notificación de éxito
-        send("✅ Conexión a Deriv exitosa. Iniciando hilos de análisis y watchdog.") 
-
-        # 2. Iniciar hilos
-        hilo = threading.Thread(target=analizar)
-        hilo.daemon = True
-        hilo.start()
-
-        hilo_watchdog = threading.Thread(target=watchdog)
-        hilo_watchdog.daemon = True
-        hilo_watchdog.start()
-
+        # Mantener el script vivo
+        while True: 
+            time.sleep(10)
     except Exception as e:
-        # 3. Manejo de error crítico en el inicio
-        error_msg = f"❌ ERROR CRÍTICO AL INICIAR: {e}. Bot detenido."
-        print(error_msg)
-        send(error_msg) 
-
-    while True:
-        time.sleep(300)
+        send(f"❌ Error fatal al iniciar: {e}")
+        os._exit(1)
