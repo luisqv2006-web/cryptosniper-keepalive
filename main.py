@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.4 VERDAD ABSOLUTA
+# CRYPTOSNIPER FX — v16.4 VERDAD ABSOLUTA (CORREGIDO)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -28,9 +28,13 @@ TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
-SYMBOLS = {"EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD"}
+# MAPEO DE ACTIVOS: Corregido para evitar error de validación en Deriv
+ASSETS = {
+    "EUR/USD": {"twelve": "EUR/USD", "deriv": "frxEURUSD"},
+    "XAU/USD": {"twelve": "XAU/USD", "deriv": "frxXAUUSD"}
+}
 
-# Ajustado al saldo actual
+# Ajustado al saldo actual de 27.08 USD visto en captura
 risk = RiskManager(
     balance_inicial=27.08, 
     max_loss_day=5, 
@@ -56,8 +60,10 @@ def on_trade_result(result):
         risk.registrar_perdida()
     registrar_operacion("AUTO", 1, result)
 
-def obtener_velas(asset, resol):
-    url = f"https://api.twelvedata.com/time_series?symbol={SYMBOLS[asset]}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
+def obtener_velas(asset_name, resol):
+    # Usamos el símbolo para TwelveData (ej. EUR/USD)
+    symbol_twelve = ASSETS[asset_name]["twelve"]
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol_twelve}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
     try:
         r = requests.get(url, timeout=10).json()
         if "values" not in r: return None
@@ -103,26 +109,27 @@ def detectar_fase(v5, v1):
     return "NADA", None
 
 # ==========================================
-# 🚀 EJECUCIÓN SÍNCRONA (LA CLAVE)
+# 🚀 EJECUCIÓN SÍNCRONA
 # ==========================================
-def ejecutar_trade(asset, direction, price):
+def ejecutar_trade(asset_name, direction, price):
     global api
     if not risk.puede_operar(): return
     
-    send(f"⏳ Solicitando {direction} en {asset} al servidor...")
+    send(f"⏳ Solicitando {direction} en {asset_name} al servidor...")
+    
+    # Usamos el símbolo técnico para Deriv (ej. frxXAUUSD)
+    deriv_symbol = ASSETS[asset_name]["deriv"]
     
     try:
-        # AQUÍ EL CÓDIGO SE DETIENE HASTA RECIBIR RESPUESTA
-        contract_id = api.buy(SYMBOLS[asset], direction, amount=1, duration=1)
+        # Enviamos la orden con el formato que Deriv acepta
+        contract_id = api.buy(deriv_symbol, direction, amount=1, duration=1)
         
-        # SI PASA DE AQUÍ, ES PORQUE EL SERVIDOR DIJO "SÍ"
         risk.registrar_trade()
-        guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
+        guardar_macro({"activo": asset_name, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA POR DERIV</b>\nID Contrato: {contract_id}\nActivo: {asset}\nDir: {direction}")
+        send(f"🔵 <b>ORDEN ACEPTADA POR DERIV</b>\nID Contrato: {contract_id}\nActivo: {asset_name}\nDir: {direction}")
         
     except Exception as e:
-        # SI FALLA, TE DIRÁ EXACTAMENTE POR QUÉ
         error_msg = str(e)
         if "Authorization required" in error_msg:
              send("❌ Error: Token inválido o expirado.")
@@ -131,7 +138,6 @@ def ejecutar_trade(asset, direction, price):
         else:
              send(f"❌ <b>DERIV RECHAZÓ LA ORDEN:</b>\n{error_msg}")
         
-        # Reiniciar si hay error grave de conexión
         if "Connection" in error_msg or "Timeout" in error_msg:
             os._exit(1)
 
@@ -140,12 +146,12 @@ def analizar():
     while True:
         try:
             if sesion_activa():
-                for asset in SYMBOLS:
-                    v5, v1 = obtener_velas(asset, 5), obtener_velas(asset, 1)
+                for asset_name in ASSETS:
+                    v5, v1 = obtener_velas(asset_name, 5), obtener_velas(asset_name, 1)
                     if not v5 or not v1: continue
                     fase, direction = detectar_fase(v5, v1)
                     if fase == "ENTRADA":
-                        ejecutar_trade(asset, direction, v1[-1][3])
+                        ejecutar_trade(asset_name, direction, v1[-1][3])
                 time.sleep(60)
             else:
                 time.sleep(600)
