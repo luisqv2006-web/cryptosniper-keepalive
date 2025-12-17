@@ -2,22 +2,17 @@ import websocket
 import json
 import time
 import threading
-import os
 
 class DerivAPI:
     def __init__(self, token, on_trade_result_callback, endpoint="wss://ws.derivws.com/websockets/v3?app_id=1089"):
-        """
-        Inicializa la conexión con Deriv.
-        Se usa el endpoint 'ws.derivws.com' para mayor estabilidad.
-        """
         self.token = token
         self.on_trade_result = on_trade_result_callback
         self.url = endpoint
         self.ws = None
+        self.is_authenticated = False
         self.connect()
 
     def connect(self):
-        """Intenta establecer la conexión WebSocket."""
         try:
             self.ws = websocket.WebSocketApp(
                 self.url,
@@ -26,95 +21,70 @@ class DerivAPI:
                 on_close=self._on_close,
                 on_open=self._on_open
             )
-            # Iniciar el hilo para correr la conexión
             threading.Thread(target=self.ws.run_forever, daemon=True).start()
-            time.sleep(2) # Esperar un poco para la conexión inicial
+            time.sleep(3) 
         except Exception as e:
-            print(f"Error al conectar con Deriv: {e}")
-            raise
+            raise ConnectionError(f"Fallo inicial de WebSocket: {e}")
 
     def _on_open(self, ws):
-        """Se llama cuando la conexión está abierta. Autenticación."""
-        print("Conexión con Deriv establecida. Autenticando...")
         self.authenticate()
 
     def _on_message(self, ws, message):
-        """Procesa los mensajes recibidos del servidor."""
         data = json.loads(message)
+        
+        # Reportar errores de la API directamente
+        if 'error' in data:
+            error_msg = data['error'].get('message', 'Error desconocido')
+            print(f"DERIV ERROR: {error_msg}")
+            # Esto permitirá que main.py capture el error real
+            self.last_error = error_msg
+            return
 
         if 'msg_type' in data:
             if data['msg_type'] == 'authorize':
-                print(f"Autenticación exitosa. Balance: {data['authorize']['balance']}")
+                self.is_authenticated = True
+                print("Autenticación Exitosa")
+            
             elif data['msg_type'] == 'buy':
-                # Mensaje después de intentar comprar
-                if 'buy' in data and data['buy']['status'] == 'Aceptado':
-                    print("Orden de compra aceptada.")
-                    self.subscribe_to_transaction(data['buy']['contract_id'])
-                elif 'error' in data:
-                    print(f"Error al comprar: {data['error']['message']}")
-                    # Propagar el error para que sea capturado en ejecutar_trade
-                    raise Exception(data['error']['message']) 
-            elif data['msg_type'] == 'proposal_open_contract':
-                # Mensaje de resultado (WIN/LOSS)
-                is_valid = data['proposal_open_contract'].get('is_valid', 0)
-                is_expired = data['proposal_open_contract'].get('is_expired', 0)
-                status = data['proposal_open_contract'].get('status')
-                
-                if is_expired == 1 and is_valid == 1 and status == 'closed':
-                    profit = data['proposal_open_contract']['profit']
-                    if profit > 0:
-                        self.on_trade_result("WIN")
-                    else:
-                        self.on_trade_result("LOSS")
-                    # Deja de seguir el contrato
-                    ws.send(json.dumps({"forget": data['proposal_open_contract']['contract_id']}))
-            
-            
-    def _on_error(self, ws, error):
-        """Maneja errores de WebSocket."""
-        # Esto es crucial para que el 'except' en main.py fuerce el reinicio
-        if "Connection is already closed" in str(error):
-            raise ConnectionError("Connection is already closed")
-        print(f"Error de conexión Deriv: {error}")
+                print("Orden enviada exitosamente al servidor.")
+                self.subscribe_to_transaction(data['buy']['contract_id'])
 
-    def _on_close(self, ws, close_status_code, close_msg):
-        """Se llama cuando la conexión se cierra."""
-        print(f"Conexión con Deriv cerrada: {close_status_code} - {close_msg}")
-        # Lanza un error al cerrar para forzar el manejo en main.py
-        raise ConnectionError(f"Conexión cerrada: {close_msg}")
+            elif data['msg_type'] == 'proposal_open_contract':
+                contract = data['proposal_open_contract']
+                if contract.get('is_expired') == 1:
+                    result = "WIN" if contract['profit'] > 0 else "LOSS"
+                    self.on_trade_result(result)
+
+    def _on_error(self, ws, error):
+        print(f"WS Error: {error}")
+
+    def _on_close(self, ws, status, msg):
+        self.is_authenticated = False
 
     def authenticate(self):
-        """Envía el token para autenticación."""
         self.ws.send(json.dumps({"authorize": self.token}))
 
-    def buy(self, symbol, contract_type, amount, duration):
-        """Envía la solicitud de compra."""
+    def buy(self, symbol, direction, amount, duration):
+        if not self.is_authenticated:
+            self.authenticate()
+            time.sleep(1)
+
+        side = "CALL" if direction.upper() == "BUY" else "PUT"
         
-        if contract_type.upper() == "BUY":
-            contract_type = "CALL"
-        elif contract_type.upper() == "SELL":
-            contract_type = "PUT"
-            
         payload = {
             "buy": 1,
             "price": amount,
             "parameters": {
                 "amount": amount,
                 "basis": "stake",
-                "contract_type": contract_type,
+                "contract_type": side,
                 "currency": "USD",
                 "duration": duration,
-                "duration_unit": "m", 
+                "duration_unit": "m",
                 "symbol": symbol
             }
         }
         self.ws.send(json.dumps(payload))
-        time.sleep(2) 
 
     def subscribe_to_transaction(self, contract_id):
-        """Suscribe al bot al resultado de un contrato."""
-        self.ws.send(json.dumps({
-            "proposal_open_contract": 1,
-            "contract_id": contract_id,
-            "subscribe": 1
-        }))
+        self.ws.send(json.dumps({"proposal_open_contract": 1, "contract_id": contract_id, "subscribe": 1}))
