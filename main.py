@@ -74,18 +74,18 @@ def ejecutar_trade(asset_name, direction, price):
     send(f"⏳ Enviando {direction} en {asset_name}...")
     
     try:
-        # ===========================================================
-        # CAMBIO DEFINITIVO: Duración aumentada a 5 minutos y contrato
-        # para evitar el error "Trading is not offered for this duration"
-        # ===========================================================
+        # ---------------------------------------------------------
+        # ACTUALIZACIÓN DEFINITIVA: Duración de 5 minutos
+        # Esto soluciona el error "Trading is not offered for this duration"
+        # ---------------------------------------------------------
         contract_id = api.buy(
             symbol=deriv_symbol, 
             direction=direction, 
             amount=1, 
-            duration=5,         # Se cambió de 1 a 5
-            duration_unit='m'   # Se especifica 'm' para minutos
+            duration=5,         # Cambio de 1 a 5
+            duration_unit='m'   # Especificamos minutos
         )
-        # ===========================================================
+        # ---------------------------------------------------------
         
         risk.registrar_trade()
         guardar_macro({"activo": asset_name, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
@@ -93,12 +93,17 @@ def ejecutar_trade(asset_name, direction, price):
         
     except Exception as e:
         error_msg = str(e)
-        send(f"⚠️ <b>FALLO: RECHAZADO POR DERIV:</b> {error_msg}")
         
-        # Manejo de reconexión si el servidor de Render falla (E/S)
-        if "closed" in error_msg.lower() or "connection" in error_msg.lower() or "tiempo de espera" in error_msg.lower():
-            send("🔄 Error de servidor detectado. Reiniciando instancia en Render...")
+        # Si el error es por duración, avisamos pero el bot sigue vivo
+        if "duration" in error_msg.lower():
+            send(f"⚠️ <b>DERIV RECHAZÓ DURACIÓN:</b> {error_msg}")
+        
+        # Si el error es de conexión (Render E/S), forzamos reinicio
+        elif any(word in error_msg.lower() for word in ["closed", "connection", "tiempo", "timeout"]):
+            send("🔄 Error de servidor detectado. Reiniciando instancia...")
             os.execv(sys.executable, ['python'] + sys.argv)
+        else:
+            send(f"⚠️ <b>FALLO:</b> {error_msg}")
 
 def obtener_velas(asset_name, resol):
     symbol = ASSETS[asset_name]["twelve"]
@@ -116,7 +121,7 @@ def analizar():
     while True:
         try:
             h = datetime.now(mx).hour
-            # Horarios de operación ajustados
+            # Horarios de operación
             if (2 <= h <= 5) or (7 <= h <= 10):
                 for asset in ASSETS:
                     v5, v1 = obtener_velas(asset, 5), obtener_velas(asset, 1)
@@ -130,7 +135,6 @@ def analizar():
                     ejecutar_trade(asset, direction, v1[-1][3])
                 time.sleep(60)
             else:
-                # Tiempo de espera fuera de horario
                 time.sleep(300)
         except Exception as e:
             time.sleep(10)
@@ -139,4 +143,4 @@ if __name__ == "__main__":
     if conectar_api():
         analizar()
     else:
-        send("❌ Error fatal de inicio en Render. Revisa tokens.")
+        send("❌ Error fatal de inicio. Revisa el TOKEN en Render.")
