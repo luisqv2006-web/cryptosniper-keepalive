@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.4 PRO (AUTO-RECONNECT)
+# CRYPTOSNIPER FX — v16.4 PRO (AUTO-RECONNECT) - ACTUALIZADO
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -74,19 +74,30 @@ def ejecutar_trade(asset_name, direction, price):
     send(f"⏳ Enviando {direction} en {asset_name}...")
     
     try:
-        # Intento de compra
-        contract_id = api.buy(deriv_symbol, direction, amount=1, duration=1)
+        # ===========================================================
+        # CAMBIO DEFINITIVO: Duración aumentada a 5 minutos y contrato
+        # para evitar el error "Trading is not offered for this duration"
+        # ===========================================================
+        contract_id = api.buy(
+            symbol=deriv_symbol, 
+            direction=direction, 
+            amount=1, 
+            duration=5,         # Se cambió de 1 a 5
+            duration_unit='m'   # Se especifica 'm' para minutos
+        )
+        # ===========================================================
+        
         risk.registrar_trade()
         guardar_macro({"activo": asset_name, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         send(f"🔵 <b>ORDEN EXITOSA</b>\nID: {contract_id}\nActivo: {asset_name}")
         
     except Exception as e:
         error_msg = str(e)
-        send(f"⚠️ <b>FALLO:</b> {error_msg}")
+        send(f"⚠️ <b>FALLO: RECHAZADO POR DERIV:</b> {error_msg}")
         
-        # Si el error es de conexión, forzamos reinicio del bot
-        if "closed" in error_msg.lower() or "connection" in error_msg.lower():
-            send("🔄 Reintentando conexión crítica...")
+        # Manejo de reconexión si el servidor de Render falla (E/S)
+        if "closed" in error_msg.lower() or "connection" in error_msg.lower() or "tiempo de espera" in error_msg.lower():
+            send("🔄 Error de servidor detectado. Reiniciando instancia en Render...")
             os.execv(sys.executable, ['python'] + sys.argv)
 
 def obtener_velas(asset_name, resol):
@@ -105,12 +116,12 @@ def analizar():
     while True:
         try:
             h = datetime.now(mx).hour
+            # Horarios de operación ajustados
             if (2 <= h <= 5) or (7 <= h <= 10):
                 for asset in ASSETS:
                     v5, v1 = obtener_velas(asset, 5), obtener_velas(asset, 1)
                     if not v5 or not v1: continue
                     
-                    # Lógica simplificada de fase para evitar errores de cálculo
                     c5, ema50 = v5[-1][3], sum([x[3] for x in v5[-50:]])/50
                     if c5 > ema50: direction = "BUY"
                     elif c5 < ema50: direction = "SELL"
@@ -119,6 +130,7 @@ def analizar():
                     ejecutar_trade(asset, direction, v1[-1][3])
                 time.sleep(60)
             else:
+                # Tiempo de espera fuera de horario
                 time.sleep(300)
         except Exception as e:
             time.sleep(10)
@@ -127,4 +139,4 @@ if __name__ == "__main__":
     if conectar_api():
         analizar()
     else:
-        send("❌ Error fatal de inicio. Revisa el TOKEN.")
+        send("❌ Error fatal de inicio en Render. Revisa tokens.")
