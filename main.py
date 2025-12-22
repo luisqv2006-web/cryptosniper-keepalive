@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.5 SOLUCIÓN DEFINITIVA (SÍNCRONA + SIN ERRORES PYTHON)
+# CRYPTOSNIPER FX — v16.7 SOLUCIÓN DE SÍMBOLOS (TRADUCTOR ACTIVO)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -25,7 +25,21 @@ TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
-SYMBOLS = {"EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD"}
+# ==========================================
+# 🗺️ DICCIONARIO DE TRADUCCIÓN (CRÍTICO)
+# ==========================================
+# Nombre para TwelveData (Análisis)
+SYMBOLS = {
+    "EUR/USD": "EUR/USD", 
+    "XAU/USD": "XAU/USD"
+}
+
+# Nombre interno que EXIGE Deriv (Ejecución)
+# El error "parameters/symbol" se arregla aquí:
+DERIV_MAP = {
+    "EUR/USD": "frxEURUSD",
+    "XAU/USD": "frxXAUUSD"
+}
 
 risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=15, timezone="America/Mexico_City")
 
@@ -47,6 +61,7 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 1, result)
 
 def obtener_velas(asset, resol):
+    # Usa el nombre con barra (EUR/USD) para el análisis
     url = f"https://api.twelvedata.com/time_series?symbol={SYMBOLS[asset]}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
     try:
         r = requests.get(url, timeout=10).json()
@@ -91,23 +106,26 @@ def detectar_fase(v5, v1):
     return "NADA", None
 
 # ================================
-# 🚀 EJECUCIÓN (Corrección de Llamada)
+# 🚀 EJECUCIÓN CON TRADUCCIÓN (SOLUCIÓN)
 # ================================
 def ejecutar_trade(asset, direction, price):
     global api
     if not risk.puede_operar(): return
     
-    send(f"⏳ Enviando orden {direction} en {asset}...")
+    # TRADUCCIÓN: Convertimos "XAU/USD" a "frxXAUUSD" aquí
+    simbolo_deriv = DERIV_MAP[asset]
+    
+    send(f"⏳ Procesando {direction} en {asset}...")
     
     try:
-        # LLAMADA CORREGIDA: Sin argumentos extraños que causen error
-        contract_id = api.buy(SYMBOLS[asset], direction, amount=1, duration=1)
+        # Enviamos el símbolo correcto a la API
+        contract_id = api.buy(simbolo_deriv, direction, amount=1, duration=1)
         
-        # SI LLEGA AQUÍ, ES ÉXITO REAL
+        # ÉXITO
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}")
+        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nSaldo: $27.08")
         
     except Exception as e:
         error_msg = str(e)
@@ -116,11 +134,12 @@ def ejecutar_trade(asset, direction, price):
         else:
              send(f"❌ <b>ERROR TÉCNICO:</b> {e}")
         
+        # Reiniciar si la conexión se cae (Error 'already closed')
         if "Connection" in error_msg or "Timeout" in error_msg:
             os._exit(1)
 
 def analizar():
-    send("✅ <b>BOT SÍNCRONO V16.5 ONLINE</b>\nEsperando señales...")
+    send("✅ <b>BOT v16.7 (TRADUCTOR ACTIVO) ONLINE</b>")
     while True:
         try:
             if sesion_activa():
@@ -145,3 +164,4 @@ if __name__ == "__main__":
     except Exception as e:
         send(f"❌ Error al iniciar: {e}")
         os._exit(1)
+
