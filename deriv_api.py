@@ -11,6 +11,9 @@ class DerivAPI:
         self.ws = None
         self.is_authenticated = False
         
+        # MEMORIA PARA EVITAR DUPLICADOS
+        self.processed_contracts = set()
+        
         # Eventos
         self.buy_event = threading.Event()
         self.last_buy_response = None
@@ -37,7 +40,10 @@ class DerivAPI:
         self.authenticate()
 
     def _on_message(self, ws, message):
-        data = json.loads(message)
+        try:
+            data = json.loads(message)
+        except:
+            return
         
         if 'error' in data:
             self.last_error = data['error']['message']
@@ -58,8 +64,18 @@ class DerivAPI:
 
             elif data['msg_type'] == 'proposal_open_contract':
                 contract = data['proposal_open_contract']
-                if contract.get('is_expired') == 1:
-                    result = "WIN" if contract['profit'] > 0 else "LOSS"
+                contract_id = contract['contract_id']
+                
+                # FILTRO DE DUPLICADOS: Si ya lo procesamos, ignorar
+                if contract_id in self.processed_contracts:
+                    return
+
+                if contract.get('is_expired') == 1 and contract.get('status') != 'open':
+                    profit = contract.get('profit', 0)
+                    result = "WIN" if profit > 0 else "LOSS"
+                    
+                    # Marcar como procesado ANTES de enviar el mensaje
+                    self.processed_contracts.add(contract_id)
                     self.on_trade_result(result)
 
     def _on_error(self, ws, error):
@@ -74,7 +90,6 @@ class DerivAPI:
         self.ws.send(json.dumps({"authorize": self.token}))
 
     def buy(self, symbol, direction, amount, duration, duration_unit="m"):
-        # REINTENTO AUTOMÁTICO DE LOGIN
         max_retries = 2
         for attempt in range(max_retries):
             self.buy_event.clear()
@@ -103,21 +118,18 @@ class DerivAPI:
             
             self.ws.send(json.dumps(payload))
             
-            # Esperar respuesta
             received = self.buy_event.wait(timeout=10)
             
             if not received:
                 raise TimeoutError("Deriv no respondió en 10s.")
             
-            # Si el error es 'Please log in', re-autenticamos y reintentamos el loop
             if self.last_error and "log in" in self.last_error:
-                print("Sesión perdida. Re-autenticando y reintentando...")
+                print("Sesión perdida. Re-autenticando...")
                 self.is_authenticated = False
                 self.authenticate()
                 time.sleep(2)
-                continue # Vuelve al inicio del for para reintentar la compra
+                continue
             
-            # Si es otro error o éxito, salimos del loop
             break
 
         if self.last_error:
