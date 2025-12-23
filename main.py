@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.9 BLINDAJE FINAL (5 MIN + AUTO-AUTH)
+# CRYPTOSNIPER FX — v16.10 LIMPIEZA FINAL (SIN SPAM)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -26,17 +26,10 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 🗺️ DICCIONARIO DE TRADUCCIÓN
+# 🗺️ DICCIONARIO
 # ==========================================
-SYMBOLS = {
-    "EUR/USD": "EUR/USD", 
-    "XAU/USD": "XAU/USD"
-}
-
-DERIV_MAP = {
-    "EUR/USD": "frxEURUSD",
-    "XAU/USD": "frxXAUUSD"
-}
+SYMBOLS = { "EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD" }
+DERIV_MAP = { "EUR/USD": "frxEURUSD", "XAU/USD": "frxXAUUSD" }
 
 risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=15, timezone="America/Mexico_City")
 
@@ -102,15 +95,13 @@ def detectar_fase(v5, v1):
     return "NADA", None
 
 # ================================
-# 🚀 EJECUCIÓN (5 MINUTOS = SEGURIDAD TOTAL)
+# 🚀 EJECUCIÓN (5 MIN + SILENCIO)
 # ================================
 def ejecutar_trade(asset, direction, price):
     global api
     if not risk.puede_operar(): return
     
     simbolo_deriv = DERIV_MAP[asset]
-    
-    # CAMBIO CRÍTICO: 5 minutos es el estándar que Deriv NUNCA rechaza para Forex
     DURACION_MINUTOS = 5 
     
     send(f"⏳ Procesando {direction} en {asset} ({DURACION_MINUTOS} min)...")
@@ -125,17 +116,23 @@ def ejecutar_trade(asset, direction, price):
         
     except Exception as e:
         error_msg = str(e)
-        # Si aun así falla, el bot te avisará. Pero con 5 min no debería fallar por duración.
         if "RECHAZADO" in error_msg:
              send(f"⚠️ <b>DERIV RECHAZÓ LA ORDEN:</b>\n{error_msg}")
-        else:
-             send(f"❌ <b>ERROR TÉCNICO:</b> {e}")
         
+        # Filtro de Silencio: Si es error de conexión, reiniciar sin avisar para no hacer spam
         if "Connection" in error_msg or "Timeout" in error_msg:
+            print(f"Reiniciando por conexión inestable: {e}")
             os._exit(1)
+        else:
+            send(f"❌ <b>ERROR TÉCNICO:</b> {e}")
 
 def analizar():
-    send("✅ <b>BOT v16.9 (5 MIN + AUTO-LOGIN) ONLINE</b>")
+    # Solo envía mensaje al iniciar, no en cada reinicio silencioso
+    print("Bot v16.10 Iniciado")
+    
+    # Pequeño truco: Solo mandar mensaje de ONLINE si ha pasado tiempo o es el primer inicio
+    # Para simplificar, lo dejamos en log de consola para evitar spam en telegram
+    
     while True:
         try:
             if sesion_activa():
@@ -155,8 +152,10 @@ def analizar():
 if __name__ == "__main__":
     try:
         api = DerivAPI(DERIV_TOKEN, on_trade_result)
+        # Mensaje de bienvenida único (opcional, o quitarlo para silencio total)
+        send("✅ <b>BOT v16.10 ACTIVO (SIN SPAM)</b>") 
         threading.Thread(target=analizar, daemon=True).start()
         while True: time.sleep(10)
     except Exception as e:
-        send(f"❌ Error al iniciar: {e}")
+        print(f"Error fatal: {e}")
         os._exit(1)
