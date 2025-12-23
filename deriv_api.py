@@ -11,7 +11,7 @@ class DerivAPI:
         self.ws = None
         self.is_authenticated = False
         
-        # Eventos de sincronización
+        # Eventos
         self.buy_event = threading.Event()
         self.last_buy_response = None
         self.last_error = None
@@ -39,13 +39,11 @@ class DerivAPI:
     def _on_message(self, ws, message):
         data = json.loads(message)
         
-        # 1. Capturar errores explícitos
         if 'error' in data:
             self.last_error = data['error']['message']
-            self.buy_event.set() # Desbloquear el proceso si hay error
+            self.buy_event.set()
             return
 
-        # 2. Procesar mensajes
         if 'msg_type' in data:
             if data['msg_type'] == 'authorize':
                 self.is_authenticated = True
@@ -55,7 +53,7 @@ class DerivAPI:
                 if 'buy' in data:
                     self.last_buy_response = data['buy']
                     self.last_error = None
-                    self.buy_event.set() # Desbloquear proceso con éxito
+                    self.buy_event.set()
                     self.subscribe_to_transaction(data['buy']['contract_id'])
 
             elif data['msg_type'] == 'proposal_open_contract':
@@ -75,40 +73,53 @@ class DerivAPI:
     def authenticate(self):
         self.ws.send(json.dumps({"authorize": self.token}))
 
-    # CORRECCIÓN AQUÍ: Se añade duration_unit por defecto para evitar el error
     def buy(self, symbol, direction, amount, duration, duration_unit="m"):
-        self.buy_event.clear()
-        self.last_buy_response = None
-        self.last_error = None
+        # REINTENTO AUTOMÁTICO DE LOGIN
+        max_retries = 2
+        for attempt in range(max_retries):
+            self.buy_event.clear()
+            self.last_buy_response = None
+            self.last_error = None
 
-        if not self.is_authenticated:
-            self.authenticate()
-            time.sleep(1)
+            if not self.is_authenticated:
+                self.authenticate()
+                time.sleep(1)
 
-        side = "CALL" if direction.upper() == "BUY" else "PUT"
-        
-        payload = {
-            "buy": 1,
-            "price": amount,
-            "parameters": {
-                "amount": amount,
-                "basis": "stake",
-                "contract_type": side,
-                "currency": "USD",
-                "duration": duration,
-                "duration_unit": duration_unit, # Ahora usa el parámetro correcto
-                "symbol": symbol
+            side = "CALL" if direction.upper() == "BUY" else "PUT"
+            
+            payload = {
+                "buy": 1,
+                "price": amount,
+                "parameters": {
+                    "amount": amount,
+                    "basis": "stake",
+                    "contract_type": side,
+                    "currency": "USD",
+                    "duration": duration,
+                    "duration_unit": duration_unit,
+                    "symbol": symbol
+                }
             }
-        }
-        
-        self.ws.send(json.dumps(payload))
-        
-        # ESPERAR RESPUESTA (Bloqueo de seguridad)
-        received = self.buy_event.wait(timeout=10)
-        
-        if not received:
-            raise TimeoutError("Deriv no respondió en 10s.")
-        
+            
+            self.ws.send(json.dumps(payload))
+            
+            # Esperar respuesta
+            received = self.buy_event.wait(timeout=10)
+            
+            if not received:
+                raise TimeoutError("Deriv no respondió en 10s.")
+            
+            # Si el error es 'Please log in', re-autenticamos y reintentamos el loop
+            if self.last_error and "log in" in self.last_error:
+                print("Sesión perdida. Re-autenticando y reintentando...")
+                self.is_authenticated = False
+                self.authenticate()
+                time.sleep(2)
+                continue # Vuelve al inicio del for para reintentar la compra
+            
+            # Si es otro error o éxito, salimos del loop
+            break
+
         if self.last_error:
             raise Exception(f"RECHAZADO: {self.last_error}")
             
