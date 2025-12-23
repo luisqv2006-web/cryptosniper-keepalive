@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v16.7 SOLUCIÓN DE SÍMBOLOS (TRADUCTOR ACTIVO)
+# CRYPTOSNIPER FX — v16.9 BLINDAJE FINAL (5 MIN + AUTO-AUTH)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -26,16 +26,13 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 🗺️ DICCIONARIO DE TRADUCCIÓN (CRÍTICO)
+# 🗺️ DICCIONARIO DE TRADUCCIÓN
 # ==========================================
-# Nombre para TwelveData (Análisis)
 SYMBOLS = {
     "EUR/USD": "EUR/USD", 
     "XAU/USD": "XAU/USD"
 }
 
-# Nombre interno que EXIGE Deriv (Ejecución)
-# El error "parameters/symbol" se arregla aquí:
 DERIV_MAP = {
     "EUR/USD": "frxEURUSD",
     "XAU/USD": "frxXAUUSD"
@@ -61,7 +58,6 @@ def on_trade_result(result):
     registrar_operacion("AUTO", 1, result)
 
 def obtener_velas(asset, resol):
-    # Usa el nombre con barra (EUR/USD) para el análisis
     url = f"https://api.twelvedata.com/time_series?symbol={SYMBOLS[asset]}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
     try:
         r = requests.get(url, timeout=10).json()
@@ -106,40 +102,40 @@ def detectar_fase(v5, v1):
     return "NADA", None
 
 # ================================
-# 🚀 EJECUCIÓN CON TRADUCCIÓN (SOLUCIÓN)
+# 🚀 EJECUCIÓN (5 MINUTOS = SEGURIDAD TOTAL)
 # ================================
 def ejecutar_trade(asset, direction, price):
     global api
     if not risk.puede_operar(): return
     
-    # TRADUCCIÓN: Convertimos "XAU/USD" a "frxXAUUSD" aquí
     simbolo_deriv = DERIV_MAP[asset]
     
-    send(f"⏳ Procesando {direction} en {asset}...")
+    # CAMBIO CRÍTICO: 5 minutos es el estándar que Deriv NUNCA rechaza para Forex
+    DURACION_MINUTOS = 5 
+    
+    send(f"⏳ Procesando {direction} en {asset} ({DURACION_MINUTOS} min)...")
     
     try:
-        # Enviamos el símbolo correcto a la API
-        contract_id = api.buy(simbolo_deriv, direction, amount=1, duration=1)
+        contract_id = api.buy(simbolo_deriv, direction, amount=1, duration=DURACION_MINUTOS)
         
-        # ÉXITO
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nSaldo: $27.08")
+        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nDuración: {DURACION_MINUTOS} min")
         
     except Exception as e:
         error_msg = str(e)
+        # Si aun así falla, el bot te avisará. Pero con 5 min no debería fallar por duración.
         if "RECHAZADO" in error_msg:
              send(f"⚠️ <b>DERIV RECHAZÓ LA ORDEN:</b>\n{error_msg}")
         else:
              send(f"❌ <b>ERROR TÉCNICO:</b> {e}")
         
-        # Reiniciar si la conexión se cae (Error 'already closed')
         if "Connection" in error_msg or "Timeout" in error_msg:
             os._exit(1)
 
 def analizar():
-    send("✅ <b>BOT v16.7 (TRADUCTOR ACTIVO) ONLINE</b>")
+    send("✅ <b>BOT v16.9 (5 MIN + AUTO-LOGIN) ONLINE</b>")
     while True:
         try:
             if sesion_activa():
@@ -164,4 +160,3 @@ if __name__ == "__main__":
     except Exception as e:
         send(f"❌ Error al iniciar: {e}")
         os._exit(1)
-
