@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v18.0 "FORTALEZA" (ADX + BOLLINGER + S&R)
+# CRYPTOSNIPER FX — v18.2 (ORO + LA BESTIA GBP/JPY)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -26,8 +26,18 @@ TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
-SYMBOLS = { "EUR/USD": "EUR/USD", "XAU/USD": "XAU/USD" }
-DERIV_MAP = { "EUR/USD": "frxEURUSD", "XAU/USD": "frxXAUUSD" }
+# ==========================================
+# 🗺️ ACTIVOS: SOLO ORO Y GBP/JPY
+# ==========================================
+SYMBOLS = {
+    "XAU/USD": "XAU/USD",  # El Rey (Oro)
+    "GBP/JPY": "GBP/JPY"   # La Bestia (Libra/Yen)
+}
+
+DERIV_MAP = {
+    "XAU/USD": "frxXAUUSD", # Código Deriv Oro
+    "GBP/JPY": "frxGBPJPY"  # Código Deriv Libra/Yen
+}
 
 risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=15, timezone="America/Mexico_City")
 
@@ -48,7 +58,11 @@ def on_trade_result(result):
         risk.registrar_perdida()
     registrar_operacion("AUTO", 1, result)
 
+# ================================
+# 🔧 MOTOR DE DATOS (Optimizado Forex)
+# ================================
 def obtener_velas(asset, resol):
+    # Ambos activos son FOREX/Metales, así que usamos el endpoint estándar
     url = f"https://api.twelvedata.com/time_series?symbol={SYMBOLS[asset]}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
     try:
         r = requests.get(url, timeout=10).json()
@@ -59,7 +73,7 @@ def obtener_velas(asset, resol):
     except: return None
 
 # ================================
-# 📐 INDICADORES MATEMÁTICOS AVANZADOS
+# 📐 INDICADORES (ESTRATEGIA FORTALEZA)
 # ================================
 def calcular_ema(candles, period):
     if len(candles) < period: return None
@@ -84,33 +98,27 @@ def calcular_rsi(candles, period=14):
     if avg_loss == 0: return 100.0
     return 100 - (100 / (1 + (avg_gain / avg_loss)))
 
-# --- NUEVO: BOLLINGER BANDS ---
 def calcular_bollinger(candles, period=20, mult=2):
     if len(candles) < period: return None, None, None
     cierres = [c[3] for c in candles[-period:]]
     sma = sum(cierres) / period
     variance = sum([((x - sma) ** 2) for x in cierres]) / period
     std_dev = math.sqrt(variance)
-    return sma + (mult * std_dev), sma, sma - (mult * std_dev) # Upper, Middle, Lower
+    return sma + (mult * std_dev), sma, sma - (mult * std_dev)
 
-# --- NUEVO: ADX (FUERZA) ---
 def calcular_adx(candles, period=14):
     if len(candles) < period * 2: return None
     try:
-        atr = []
-        dm_pos = []
-        dm_neg = []
+        atr, dm_pos, dm_neg = [], [], []
         for i in range(1, len(candles)):
             h, l, c_prev = candles[i][1], candles[i][2], candles[i-1][3]
             tr = max(h-l, abs(h-c_prev), abs(l-c_prev))
             atr.append(tr)
-            
             up = h - candles[i-1][1]
             down = candles[i-1][2] - l
             dm_pos.append(up if up > down and up > 0 else 0)
             dm_neg.append(down if down > up and down > 0 else 0)
 
-        # Suavizado inicial simple
         smooth_atr = sum(atr[:period])/period
         smooth_pos = sum(dm_pos[:period])/period
         smooth_neg = sum(dm_neg[:period])/period
@@ -120,7 +128,6 @@ def calcular_adx(candles, period=14):
             smooth_atr = (smooth_atr * (period-1) + atr[i]) / period
             smooth_pos = (smooth_pos * (period-1) + dm_pos[i]) / period
             smooth_neg = (smooth_neg * (period-1) + dm_neg[i]) / period
-            
             di_pos = 100 * (smooth_pos / smooth_atr) if smooth_atr != 0 else 0
             di_neg = 100 * (smooth_neg / smooth_atr) if smooth_atr != 0 else 0
             dx = 100 * abs(di_pos - di_neg) / (di_pos + di_neg) if (di_pos + di_neg) != 0 else 0
@@ -133,77 +140,45 @@ def calcular_adx(candles, period=14):
         return adx
     except: return None
 
-# --- NUEVO: SOPORTES Y RESISTENCIAS (S&R) ---
 def verificar_espacio_sr(candles, direction, current_price):
-    # Mira las últimas 30 velas para encontrar techos y pisos
     lookback = 30
-    recent_candles = candles[-lookback:-1] # Ignora la vela actual que se mueve
-    
+    recent_candles = candles[-lookback:-1]
     if direction == "BUY":
-        # Buscamos la Resistencia (Máximo reciente)
         resistance = max([c[1] for c in recent_candles])
-        distancia = resistance - current_price
-        # Si el precio está muy cerca del techo (menos de 2 pips en Forex aprox), PELIGRO
-        # Para simplificar: Si está a menos del 5% del rango promedio de velas
         avg_body = sum([abs(c[3]-c[0]) for c in recent_candles]) / lookback
-        if distancia < (avg_body * 0.5): 
-            return False # Demasiado cerca del techo
-            
+        if (resistance - current_price) < (avg_body * 0.5): return False
     elif direction == "SELL":
-        # Buscamos el Soporte (Mínimo reciente)
         support = min([c[2] for c in recent_candles])
-        distancia = current_price - support
-        if distancia < (avg_body * 0.5):
-            return False # Demasiado cerca del piso
-            
-    return True # Hay espacio libre
+        avg_body = sum([abs(c[3]-c[0]) for c in recent_candles]) / lookback
+        if (current_price - support) < (avg_body * 0.5): return False
+    return True
 
 # ================================
-# 🧠 LÓGICA MAESTRA v18.0
+# 🧠 LÓGICA V18.2
 # ================================
 def detectar_fase(v5, v1):
-    # 1. Indicadores Básicos
     ema50 = calcular_ema(v5, 50)
     rsi14 = calcular_rsi(v1, 14)
     if not ema50 or not rsi14: return "NADA", None
     
-    # 2. Indicadores Avanzados (NUEVOS)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
     adx_val = calcular_adx(v5, 14)
-    
     if not upper_bb or not adx_val: return "NADA", None
 
-    # Precios
     close_p = v1[-1][3]
-    
-    # --- FILTRO 1: FUERZA DE TENDENCIA (ADX) ---
-    # Si ADX < 20, el mercado está muerto (lateral). No operar.
-    if adx_val < 20: 
-        return "NADA", None 
+    if adx_val < 20: return "NADA", None 
 
     c5_close = v5[-1][3]
     
-    # --- ESTRATEGIA DE COMPRA (BUY) ---
-    if c5_close > ema50: # Tendencia Alcista
-        # Filtro RSI Sweet Spot
-        if 50 < rsi14 < 68:
-            # Filtro Bollinger: Precio en la mitad superior (Zona de compras)
-            if c5_close > mid_bb:
-                # Filtro S&R: ¿Tenemos espacio antes del techo?
-                if verificar_espacio_sr(v5, "BUY", c5_close):
-                     # Confirmación de vela
-                     if close_p > v1[-2][1]: return "ENTRADA", "BUY"
+    if c5_close > ema50: 
+        if 50 < rsi14 < 68 and c5_close > mid_bb:
+            if verificar_espacio_sr(v5, "BUY", c5_close):
+                 if close_p > v1[-2][1]: return "ENTRADA", "BUY"
 
-    # --- ESTRATEGIA DE VENTA (SELL) ---
-    elif c5_close < ema50: # Tendencia Bajista
-        # Filtro RSI Sweet Spot
-        if 32 < rsi14 < 50:
-            # Filtro Bollinger: Precio en la mitad inferior (Zona de ventas)
-            if c5_close < mid_bb:
-                # Filtro S&R: ¿Tenemos espacio antes del piso?
-                if verificar_espacio_sr(v5, "SELL", c5_close):
-                    # Confirmación de vela
-                    if close_p < v1[-2][2]: return "ENTRADA", "SELL"
+    elif c5_close < ema50:
+        if 32 < rsi14 < 50 and c5_close < mid_bb:
+            if verificar_espacio_sr(v5, "SELL", c5_close):
+                if close_p < v1[-2][2]: return "ENTRADA", "SELL"
             
     return "NADA", None
 
@@ -217,7 +192,7 @@ def ejecutar_trade(asset, direction, price):
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
     
-    send(f"🛡️ <b>SEÑAL BLINDADA (v18.0)</b>\nActivo: {asset}\nDir: {direction}\nVerificando S&R y ADX...")
+    send(f"⏳ Analizando {asset} | {direction}...")
     
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=1, duration=DURACION_MINUTOS)
@@ -225,7 +200,7 @@ def ejecutar_trade(asset, direction, price):
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\n{asset} | {direction} | 5 min")
+        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nDuración: {DURACION_MINUTOS} min")
         
     except Exception as e:
         error_msg = str(e)
@@ -239,9 +214,8 @@ def ejecutar_trade(asset, direction, price):
             send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v18.0 Iniciado")
-    send("✅ <b>BOT v18.0 FORTALEZA ONLINE</b>\nADX + BB + S&R Activos")
-    
+    print("Bot v18.2 Iniciado")
+    send("✅ <b>BOT v18.2 ONLINE</b>\nConfig: ORO + GBP/JPY")
     while True:
         try:
             if sesion_activa():
