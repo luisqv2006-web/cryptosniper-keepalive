@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v19.1 (ESTOCÁSTICO + ADX + BOLLINGER)
+# CRYPTOSNIPER FX — v19.2 (SOLO ORO - SIN ERRORES)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -27,19 +27,20 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 🗺️ ACTIVOS: ORO Y GBP/JPY
+# 🗺️ ACTIVO ÚNICO: ORO (XAU/USD)
 # ==========================================
+# Eliminamos GBP/JPY porque dio error de duración.
+# Nos quedamos solo con el que SÍ FUNCIONA.
 SYMBOLS = {
-    "XAU/USD": "XAU/USD", 
-    "GBP/JPY": "GBP/JPY"
+    "XAU/USD": "XAU/USD"
 }
 
 DERIV_MAP = {
-    "XAU/USD": "frxXAUUSD",
-    "GBP/JPY": "frxGBPJPY"
+    "XAU/USD": "frxXAUUSD"
 }
 
-risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=20, timezone="America/Mexico_City")
+# Gestión de riesgo ajustada para un solo activo
+risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=15, timezone="America/Mexico_City")
 
 def send(msg):
     try: requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
@@ -47,7 +48,7 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
-    # Horario extendido para aprovechar volatilidad (Londres + NY)
+    # Horario de Oro (Londres + NY)
     return (2 <= h <= 12) 
 
 def on_trade_result(result):
@@ -70,7 +71,7 @@ def obtener_velas(asset, resol):
     except: return None
 
 # ================================
-# 📐 INDICADORES TÉCNICOS
+# 📐 INDICADORES (ADX + BB + ESTOCÁSTICO)
 # ================================
 def calcular_ema(candles, period):
     if len(candles) < period: return None
@@ -122,7 +123,6 @@ def calcular_adx(candles, period=14):
         return adx
     except: return None
 
-# --- NUEVO: ESTOCÁSTICO (El Gatillo) ---
 def calcular_stoch(candles, k_period=14, d_period=3):
     if len(candles) < k_period + d_period: return None, None
     
@@ -143,11 +143,8 @@ def calcular_stoch(candles, k_period=14, d_period=3):
         k_values.append(k)
         
     if len(k_values) < d_period: return None, None
-    
-    # Calcular %D (Media móvil de %K)
     current_k = k_values[-1]
     current_d = sum(k_values[-d_period:]) / d_period
-    
     return current_k, current_d
 
 def verificar_espacio_sr(candles, direction, current_price):
@@ -164,42 +161,28 @@ def verificar_espacio_sr(candles, direction, current_price):
     return True
 
 # ================================
-# 🧠 LÓGICA MAESTRA v19.1
+# 🧠 LÓGICA V19.2
 # ================================
 def detectar_fase(v5, v1):
-    # 1. Indicadores de Tendencia y Fuerza
     ema50 = calcular_ema(v5, 50)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
     adx_val = calcular_adx(v5, 14)
-    
-    # 2. Gatillo de Precisión (Estocástico)
     stoch_k, stoch_d = calcular_stoch(v5, 14, 3)
 
     if not ema50 or not stoch_k or not adx_val: return "NADA", None
 
-    # FILTRO DE MERCADO MUERTO
     if adx_val < 20: return "NADA", None 
 
     c5_close = v5[-1][3]
     
-    # --- ESTRATEGIA: TENDENCIA + RETROCESO + GATILLO ---
-    
-    # COMPRA (BUY)
-    if c5_close > ema50: # Tendencia Alcista
-        # El precio debe estar sobre la media de Bollinger (Zona de control alcista)
+    if c5_close > ema50: 
         if c5_close > mid_bb:
-            # Estocástico: Buscamos que NO esté sobrecomprado (>80) para tener espacio
-            # Y idealmente que K esté cruzando a D hacia arriba (momentum)
             if stoch_k < 80 and stoch_k > stoch_d:
                 if verificar_espacio_sr(v5, "BUY", c5_close):
                      return "ENTRADA", "BUY"
 
-    # VENTA (SELL)
-    elif c5_close < ema50: # Tendencia Bajista
-        # El precio debe estar bajo la media de Bollinger (Zona de control bajista)
+    elif c5_close < ema50:
         if c5_close < mid_bb:
-            # Estocástico: Buscamos que NO esté sobrevendido (<20)
-            # Y que K esté cruzando a D hacia abajo
             if stoch_k > 20 and stoch_k < stoch_d:
                 if verificar_espacio_sr(v5, "SELL", c5_close):
                     return "ENTRADA", "SELL"
@@ -216,7 +199,7 @@ def ejecutar_trade(asset, direction, price):
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
     
-    send(f"🎯 <b>GATILLO ESTOCÁSTICO ACTIVADO</b>\nActivo: {asset}\nDir: {direction}\nConfirmando entrada...")
+    send(f"🏆 <b>SEÑAL DE ORO DETECTADA</b>\nActivo: {asset}\nDir: {direction}\nConfirmando con Estocástico...")
     
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=1, duration=DURACION_MINUTOS)
@@ -238,8 +221,8 @@ def ejecutar_trade(asset, direction, price):
             send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v19.1 Iniciado")
-    send("✅ <b>BOT v19.1 ONLINE (PRECISIÓN ESTOCÁSTICA)</b>\nObjetivo: Entradas Perfectas en XAU y GBP")
+    print("Bot v19.2 Iniciado")
+    send("✅ <b>BOT v19.2 ONLINE (SOLO ORO)</b>\nObjetivo: Sin errores, solo Profits.")
     while True:
         try:
             if sesion_activa():
