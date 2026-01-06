@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v19.2 (SOLO ORO - SIN ERRORES)
+# CRYPTOSNIPER FX — v20.0 (BIG BROTHER 15M + FILTRO CUERPO)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -27,19 +27,16 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 🗺️ ACTIVO ÚNICO: ORO (XAU/USD)
+# 💰 CONFIGURACIÓN
 # ==========================================
-# Eliminamos GBP/JPY porque dio error de duración.
-# Nos quedamos solo con el que SÍ FUNCIONA.
-SYMBOLS = {
-    "XAU/USD": "XAU/USD"
-}
+MONTO_INVERSION = 1.0  # Dólares por operación
 
-DERIV_MAP = {
-    "XAU/USD": "frxXAUUSD"
-}
+# ==========================================
+# 🗺️ SOLO ORO (XAU/USD)
+# ==========================================
+SYMBOLS = { "XAU/USD": "XAU/USD" }
+DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
-# Gestión de riesgo ajustada para un solo activo
 risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=15, timezone="America/Mexico_City")
 
 def send(msg):
@@ -48,7 +45,6 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
-    # Horario de Oro (Londres + NY)
     return (2 <= h <= 12) 
 
 def on_trade_result(result):
@@ -71,7 +67,7 @@ def obtener_velas(asset, resol):
     except: return None
 
 # ================================
-# 📐 INDICADORES (ADX + BB + ESTOCÁSTICO)
+# 📐 INDICADORES TÉCNICOS
 # ================================
 def calcular_ema(candles, period):
     if len(candles) < period: return None
@@ -101,11 +97,9 @@ def calcular_adx(candles, period=14):
             down = candles[i-1][2] - l
             dm_pos.append(up if up > down and up > 0 else 0)
             dm_neg.append(down if down > up and down > 0 else 0)
-
         smooth_atr = sum(atr[:period])/period
         smooth_pos = sum(dm_pos[:period])/period
         smooth_neg = sum(dm_neg[:period])/period
-        
         dx_list = []
         for i in range(period, len(atr)):
             smooth_atr = (smooth_atr * (period-1) + atr[i]) / period
@@ -115,7 +109,6 @@ def calcular_adx(candles, period=14):
             di_neg = 100 * (smooth_neg / smooth_atr) if smooth_atr != 0 else 0
             dx = 100 * abs(di_pos - di_neg) / (di_pos + di_neg) if (di_pos + di_neg) != 0 else 0
             dx_list.append(dx)
-
         if len(dx_list) < period: return None
         adx = sum(dx_list[:period]) / period
         for i in range(period, len(dx_list)):
@@ -125,30 +118,24 @@ def calcular_adx(candles, period=14):
 
 def calcular_stoch(candles, k_period=14, d_period=3):
     if len(candles) < k_period + d_period: return None, None
-    
     closes = [c[3] for c in candles]
     lows = [c[2] for c in candles]
     highs = [c[1] for c in candles]
-    
     k_values = []
     for i in range(k_period, len(candles)):
         current_close = closes[i]
         lowest_low = min(lows[i-k_period+1:i+1])
         highest_high = max(highs[i-k_period+1:i+1])
-        
-        if highest_high - lowest_low == 0:
-            k = 100
-        else:
-            k = ((current_close - lowest_low) / (highest_high - lowest_low)) * 100
+        if highest_high - lowest_low == 0: k = 100
+        else: k = ((current_close - lowest_low) / (highest_high - lowest_low)) * 100
         k_values.append(k)
-        
     if len(k_values) < d_period: return None, None
     current_k = k_values[-1]
     current_d = sum(k_values[-d_period:]) / d_period
     return current_k, current_d
 
 def verificar_espacio_sr(candles, direction, current_price):
-    lookback = 30
+    lookback = 50 # Aumentado a 50 velas para ver más historia
     recent_candles = candles[-lookback:-1]
     if direction == "BUY":
         resistance = max([c[1] for c in recent_candles])
@@ -160,37 +147,69 @@ def verificar_espacio_sr(candles, direction, current_price):
         if (current_price - support) < (avg_body * 0.5): return False
     return True
 
+# --- NUEVO: FILTRO DE CALIDAD DE VELA ---
+def vela_tiene_cuerpo(vela_data):
+    open_p, high_p, low_p, close_p = vela_data[0], vela_data[1], vela_data[2], vela_data[3]
+    total_size = high_p - low_p
+    body_size = abs(close_p - open_p)
+    
+    if total_size == 0: return False
+    # El cuerpo debe ser al menos el 30% de la vela. Si es menos, es un Doji (Indecisión).
+    return (body_size / total_size) > 0.30
+
 # ================================
-# 🧠 LÓGICA V19.2
+# 🧠 LÓGICA V20.0 (BIG BROTHER 15M)
 # ================================
-def detectar_fase(v5, v1):
-    ema50 = calcular_ema(v5, 50)
+def detectar_fase(v5, v1, v15):
+    # 1. Indicadores 5m
+    ema50_5m = calcular_ema(v5, 50)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
     adx_val = calcular_adx(v5, 14)
     stoch_k, stoch_d = calcular_stoch(v5, 14, 3)
 
-    if not ema50 or not stoch_k or not adx_val: return "NADA", None
+    # 2. Indicadores 15m (BIG BROTHER)
+    ema50_15m = calcular_ema(v15, 50)
 
-    if adx_val < 20: return "NADA", None 
+    if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None
+
+    # FILTRO: ADX estricto para ORO (Subido a 25)
+    if adx_val < 25: return "NADA", None 
 
     c5_close = v5[-1][3]
+    c15_close = v15[-1][3]
     
-    if c5_close > ema50: 
-        if c5_close > mid_bb:
-            if stoch_k < 80 and stoch_k > stoch_d:
+    # ESTRATEGIA ALINEADA (5M debe coincidir con 15M)
+    
+    # --- COMPRA ---
+    # 1. Tendencia 5m Alcista
+    if c5_close > ema50_5m: 
+        # 2. Tendencia 15m Alcista (BIG BROTHER CHECK)
+        if c15_close > ema50_15m:
+            # 3. Bollinger y Estocástico
+            if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
+                # 4. Espacio S&R
                 if verificar_espacio_sr(v5, "BUY", c5_close):
-                     return "ENTRADA", "BUY"
+                    # 5. Confirmación de Vela (v1 tiene cuerpo real)
+                    if vela_tiene_cuerpo(v1[-1]):
+                         return "ENTRADA", "BUY"
 
-    elif c5_close < ema50:
-        if c5_close < mid_bb:
-            if stoch_k > 20 and stoch_k < stoch_d:
+    # --- VENTA ---
+    # 1. Tendencia 5m Bajista
+    elif c5_close < ema50_5m:
+        # 2. Tendencia 15m Bajista (BIG BROTHER CHECK)
+        if c15_close < ema50_15m:
+            # 3. Bollinger y Estocástico
+            if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
+                # 4. Espacio S&R
                 if verificar_espacio_sr(v5, "SELL", c5_close):
-                    return "ENTRADA", "SELL"
+                    # 5. Confirmación de Vela
+                     if vela_tiene_cuerpo(v1[-1]):
+                        return "ENTRADA", "SELL"
             
     return "NADA", None
 
 # ================================
-# 🚀 EJECUCIÓN (5 MIN)
+# 🚀 EJECUCIÓN
 # ================================
 def ejecutar_trade(asset, direction, price):
     global api
@@ -199,15 +218,15 @@ def ejecutar_trade(asset, direction, price):
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
     
-    send(f"🏆 <b>SEÑAL DE ORO DETECTADA</b>\nActivo: {asset}\nDir: {direction}\nConfirmando con Estocástico...")
+    send(f"🛡️ <b>SEÑAL BLINDADA (v20.0)</b>\nDir: {direction}\nConfirmado por Tendencia 15m + ADX>25")
     
     try:
-        contract_id = api.buy(simbolo_deriv, direction, amount=1, duration=DURACION_MINUTOS)
+        contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
         
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nDuración: {DURACION_MINUTOS} min")
+        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nInversión: ${MONTO_INVERSION}")
         
     except Exception as e:
         error_msg = str(e)
@@ -221,15 +240,21 @@ def ejecutar_trade(asset, direction, price):
             send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v19.2 Iniciado")
-    send("✅ <b>BOT v19.2 ONLINE (SOLO ORO)</b>\nObjetivo: Sin errores, solo Profits.")
+    print("Bot v20.0 Iniciado")
+    send(f"✅ <b>BOT v20.0 GENERAL ONLINE</b>\nEstrategia: Alineación 5m + 15m\nFiltro ADX: >25 (Fuerte)")
     while True:
         try:
             if sesion_activa():
                 for asset in SYMBOLS:
-                    v5, v1 = obtener_velas(asset, 5), obtener_velas(asset, 1)
-                    if not v5 or not v1: continue
-                    fase, direction = detectar_fase(v5, v1)
+                    # Obtenemos velas de 5m, 1m y AHORA TAMBIÉN 15m
+                    v5 = obtener_velas(asset, 5)
+                    v1 = obtener_velas(asset, 1)
+                    v15 = obtener_velas(asset, 15) # Big Brother
+                    
+                    if not v5 or not v1 or not v15: continue
+                    
+                    fase, direction = detectar_fase(v5, v1, v15)
+                    
                     if fase == "ENTRADA":
                         ejecutar_trade(asset, direction, v1[-1][3])
                 time.sleep(60)
@@ -247,3 +272,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error fatal: {e}")
         os._exit(1)
+
