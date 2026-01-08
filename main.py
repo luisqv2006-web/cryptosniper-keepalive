@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v20.0 (BIG BROTHER 15M + FILTRO CUERPO)
+# CRYPTOSNIPER FX — v20.1 (CALIBRE $2 + ESTRATEGIA TANQUE)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -27,9 +27,9 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 💰 CONFIGURACIÓN
+# 💰 NUEVA CONFIGURACIÓN DE DINERO
 # ==========================================
-MONTO_INVERSION = 1.0  # Dólares por operación
+MONTO_INVERSION = 2.0  # ¡Subimos a $2 por operación!
 
 # ==========================================
 # 🗺️ SOLO ORO (XAU/USD)
@@ -37,7 +37,10 @@ MONTO_INVERSION = 1.0  # Dólares por operación
 SYMBOLS = { "XAU/USD": "XAU/USD" }
 DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
-risk = RiskManager(balance_inicial=27.08, max_loss_day=5, max_trades_day=15, timezone="America/Mexico_City")
+# Ajustamos el Risk Manager:
+# Como ahora operamos con $2, subimos el Stop Loss diario a $6 (3 pérdidas seguidas)
+# para darle margen de respirar.
+risk = RiskManager(balance_inicial=41.64, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
 def send(msg):
     try: requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
@@ -135,7 +138,7 @@ def calcular_stoch(candles, k_period=14, d_period=3):
     return current_k, current_d
 
 def verificar_espacio_sr(candles, direction, current_price):
-    lookback = 50 # Aumentado a 50 velas para ver más historia
+    lookback = 50 
     recent_candles = candles[-lookback:-1]
     if direction == "BUY":
         resistance = max([c[1] for c in recent_candles])
@@ -147,32 +150,26 @@ def verificar_espacio_sr(candles, direction, current_price):
         if (current_price - support) < (avg_body * 0.5): return False
     return True
 
-# --- NUEVO: FILTRO DE CALIDAD DE VELA ---
 def vela_tiene_cuerpo(vela_data):
     open_p, high_p, low_p, close_p = vela_data[0], vela_data[1], vela_data[2], vela_data[3]
     total_size = high_p - low_p
     body_size = abs(close_p - open_p)
-    
     if total_size == 0: return False
-    # El cuerpo debe ser al menos el 30% de la vela. Si es menos, es un Doji (Indecisión).
     return (body_size / total_size) > 0.30
 
 # ================================
-# 🧠 LÓGICA V20.0 (BIG BROTHER 15M)
+# 🧠 LÓGICA V20.1 (BIG BROTHER 15M)
 # ================================
 def detectar_fase(v5, v1, v15):
-    # 1. Indicadores 5m
     ema50_5m = calcular_ema(v5, 50)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
     adx_val = calcular_adx(v5, 14)
     stoch_k, stoch_d = calcular_stoch(v5, 14, 3)
-
-    # 2. Indicadores 15m (BIG BROTHER)
     ema50_15m = calcular_ema(v15, 50)
 
     if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None
 
-    # FILTRO: ADX estricto para ORO (Subido a 25)
+    # FILTRO: ADX estricto para ORO > 25
     if adx_val < 25: return "NADA", None 
 
     c5_close = v5[-1][3]
@@ -181,35 +178,25 @@ def detectar_fase(v5, v1, v15):
     # ESTRATEGIA ALINEADA (5M debe coincidir con 15M)
     
     # --- COMPRA ---
-    # 1. Tendencia 5m Alcista
     if c5_close > ema50_5m: 
-        # 2. Tendencia 15m Alcista (BIG BROTHER CHECK)
-        if c15_close > ema50_15m:
-            # 3. Bollinger y Estocástico
+        if c15_close > ema50_15m: # Big Brother Check
             if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
-                # 4. Espacio S&R
                 if verificar_espacio_sr(v5, "BUY", c5_close):
-                    # 5. Confirmación de Vela (v1 tiene cuerpo real)
                     if vela_tiene_cuerpo(v1[-1]):
                          return "ENTRADA", "BUY"
 
     # --- VENTA ---
-    # 1. Tendencia 5m Bajista
     elif c5_close < ema50_5m:
-        # 2. Tendencia 15m Bajista (BIG BROTHER CHECK)
-        if c15_close < ema50_15m:
-            # 3. Bollinger y Estocástico
+        if c15_close < ema50_15m: # Big Brother Check
             if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
-                # 4. Espacio S&R
                 if verificar_espacio_sr(v5, "SELL", c5_close):
-                    # 5. Confirmación de Vela
                      if vela_tiene_cuerpo(v1[-1]):
                         return "ENTRADA", "SELL"
             
     return "NADA", None
 
 # ================================
-# 🚀 EJECUCIÓN
+# 🚀 EJECUCIÓN ($2 USD)
 # ================================
 def ejecutar_trade(asset, direction, price):
     global api
@@ -218,7 +205,7 @@ def ejecutar_trade(asset, direction, price):
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
     
-    send(f"🛡️ <b>SEÑAL BLINDADA (v20.0)</b>\nDir: {direction}\nConfirmado por Tendencia 15m + ADX>25")
+    send(f"🛡️ <b>SEÑAL BLINDADA (v20.1)</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION} USD</b>")
     
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
@@ -226,7 +213,7 @@ def ejecutar_trade(asset, direction, price):
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nInversión: ${MONTO_INVERSION}")
+        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nInversión: <b>${MONTO_INVERSION} USD</b>")
         
     except Exception as e:
         error_msg = str(e)
@@ -240,16 +227,15 @@ def ejecutar_trade(asset, direction, price):
             send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v20.0 Iniciado")
-    send(f"✅ <b>BOT v20.0 GENERAL ONLINE</b>\nEstrategia: Alineación 5m + 15m\nFiltro ADX: >25 (Fuerte)")
+    print("Bot v20.1 Iniciado")
+    send(f"✅ <b>BOT v20.1 ACTIVO</b>\nInversión: ${MONTO_INVERSION} USD\nBalance Base: ${risk.balance_inicial}")
     while True:
         try:
             if sesion_activa():
                 for asset in SYMBOLS:
-                    # Obtenemos velas de 5m, 1m y AHORA TAMBIÉN 15m
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
-                    v15 = obtener_velas(asset, 15) # Big Brother
+                    v15 = obtener_velas(asset, 15) 
                     
                     if not v5 or not v1 or not v15: continue
                     
@@ -272,4 +258,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error fatal: {e}")
         os._exit(1)
-
