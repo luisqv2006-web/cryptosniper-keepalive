@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v20.1 (CALIBRE $2 + ESTRATEGIA TANQUE)
+# CRYPTOSNIPER FX — v20.2 (ADAPTATIVO: TURBO + SEGURO)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -27,19 +27,16 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 💰 NUEVA CONFIGURACIÓN DE DINERO
+# 💰 DINERO
 # ==========================================
-MONTO_INVERSION = 2.0  # ¡Subimos a $2 por operación!
+MONTO_INVERSION = 2.0 
 
 # ==========================================
-# 🗺️ SOLO ORO (XAU/USD)
+# 🗺️ SOLO ORO
 # ==========================================
 SYMBOLS = { "XAU/USD": "XAU/USD" }
 DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
-# Ajustamos el Risk Manager:
-# Como ahora operamos con $2, subimos el Stop Loss diario a $6 (3 pérdidas seguidas)
-# para darle margen de respirar.
 risk = RiskManager(balance_inicial=41.64, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
 def send(msg):
@@ -158,7 +155,7 @@ def vela_tiene_cuerpo(vela_data):
     return (body_size / total_size) > 0.30
 
 # ================================
-# 🧠 LÓGICA V20.1 (BIG BROTHER 15M)
+# 🧠 LÓGICA V20.2 (ADAPTATIVA: TURBO vs SEGURO)
 # ================================
 def detectar_fase(v5, v1, v15):
     ema50_5m = calcular_ema(v5, 50)
@@ -167,45 +164,54 @@ def detectar_fase(v5, v1, v15):
     stoch_k, stoch_d = calcular_stoch(v5, 14, 3)
     ema50_15m = calcular_ema(v15, 50)
 
-    if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None
+    if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None, False
 
-    # FILTRO: ADX estricto para ORO > 25
-    if adx_val < 25: return "NADA", None 
+    # FILTRO MÍNIMO GENERAL (Si no hay fuerza, no operamos)
+    if adx_val < 20: return "NADA", None, False
 
     c5_close = v5[-1][3]
     c15_close = v15[-1][3]
     
-    # ESTRATEGIA ALINEADA (5M debe coincidir con 15M)
+    # --- DETERMINAR MODO ---
+    # Si ADX > 30, estamos en MODO TURBO (Ignoramos 15m para entrar rápido)
+    # Si ADX < 30, estamos en MODO SEGURO (Exigimos 15m para no perder)
+    modo_turbo = adx_val > 30
     
-    # --- COMPRA ---
+    # --- ESTRATEGIA ---
+    
+    # 1. COMPRA (BUY)
     if c5_close > ema50_5m: 
-        if c15_close > ema50_15m: # Big Brother Check
+        # Si NO estamos en Turbo, exigimos que 15m también sea alcista
+        if modo_turbo or (c15_close > ema50_15m): 
             if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
                 if verificar_espacio_sr(v5, "BUY", c5_close):
                     if vela_tiene_cuerpo(v1[-1]):
-                         return "ENTRADA", "BUY"
+                         return "ENTRADA", "BUY", modo_turbo
 
-    # --- VENTA ---
+    # 2. VENTA (SELL)
     elif c5_close < ema50_5m:
-        if c15_close < ema50_15m: # Big Brother Check
+        # Si NO estamos en Turbo, exigimos que 15m también sea bajista
+        if modo_turbo or (c15_close < ema50_15m): 
             if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
                 if verificar_espacio_sr(v5, "SELL", c5_close):
                      if vela_tiene_cuerpo(v1[-1]):
-                        return "ENTRADA", "SELL"
+                        return "ENTRADA", "SELL", modo_turbo
             
-    return "NADA", None
+    return "NADA", None, False
 
 # ================================
-# 🚀 EJECUCIÓN ($2 USD)
+# 🚀 EJECUCIÓN
 # ================================
-def ejecutar_trade(asset, direction, price):
+def ejecutar_trade(asset, direction, price, es_turbo):
     global api
     if not risk.puede_operar(): return
     
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
     
-    send(f"🛡️ <b>SEÑAL BLINDADA (v20.1)</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION} USD</b>")
+    tipo_entrada = "🔥 MODO TURBO (ADX>30)" if es_turbo else "🛡️ MODO SEGURO (5m+15m)"
+    
+    send(f"⚡ <b>SEÑAL RAPIDA ({tipo_entrada})</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION}</b>")
     
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
@@ -213,7 +219,7 @@ def ejecutar_trade(asset, direction, price):
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         
-        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nActivo: {asset}\nDirección: {direction}\nInversión: <b>${MONTO_INVERSION} USD</b>")
+        send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nTipo: {tipo_entrada}\nDirección: {direction}")
         
     except Exception as e:
         error_msg = str(e)
@@ -227,8 +233,8 @@ def ejecutar_trade(asset, direction, price):
             send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v20.1 Iniciado")
-    send(f"✅ <b>BOT v20.1 ACTIVO</b>\nInversión: ${MONTO_INVERSION} USD\nBalance Base: ${risk.balance_inicial}")
+    print("Bot v20.2 Iniciado")
+    send(f"✅ <b>BOT v20.2 ADAPTATIVO ONLINE</b>\nInversión: ${MONTO_INVERSION}\nEstrategia: Turbo (>30 ADX) + Seguro (<30 ADX)")
     while True:
         try:
             if sesion_activa():
@@ -239,10 +245,10 @@ def analizar():
                     
                     if not v5 or not v1 or not v15: continue
                     
-                    fase, direction = detectar_fase(v5, v1, v15)
+                    fase, direction, es_turbo = detectar_fase(v5, v1, v15)
                     
                     if fase == "ENTRADA":
-                        ejecutar_trade(asset, direction, v1[-1][3])
+                        ejecutar_trade(asset, direction, v1[-1][3], es_turbo)
                 time.sleep(60)
             else:
                 time.sleep(600)
@@ -258,3 +264,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error fatal: {e}")
         os._exit(1)
+
