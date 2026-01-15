@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v20.2 (ADAPTATIVO: TURBO + SEGURO)
+# CRYPTOSNIPER FX — v20.3 (MODO DIAGNÓSTICO DE CONEXIÓN)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -11,6 +11,7 @@ import pytz
 import math
 from datetime import datetime
 import os
+import sys # Agregado para forzar logs
 
 from auto_copy import AutoCopy
 from stats import registrar_operacion
@@ -18,10 +19,19 @@ from risk_manager import RiskManager
 from deriv_api import DerivAPI 
 from firebase_cache import actualizar_estado, guardar_macro
 
+# --- VERIFICACIÓN DE LLAVES AL INICIO ---
+print("--- INICIANDO DIAGNÓSTICO DE LLAVES ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
+
+if not TOKEN: print("❌ ERROR CRÍTICO: No se encontró TELEGRAM_TOKEN en las variables.")
+else: print(f"✅ TELEGRAM_TOKEN detectado: {TOKEN[:5]}...")
+
+if not CHAT_ID: print("❌ ERROR CRÍTICO: No se encontró TELEGRAM_CHAT_ID en las variables.")
+else: print(f"✅ TELEGRAM_CHAT_ID detectado: {CHAT_ID}")
+print("--- FIN DIAGNÓSTICO ---")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
@@ -31,17 +41,24 @@ mx = pytz.timezone("America/Mexico_City")
 # ==========================================
 MONTO_INVERSION = 2.0 
 
-# ==========================================
-# 🗺️ SOLO ORO
-# ==========================================
 SYMBOLS = { "XAU/USD": "XAU/USD" }
 DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
 risk = RiskManager(balance_inicial=41.64, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
+# --- FUNCIÓN SEND MEJORADA (SIN SILENCIADOR) ---
 def send(msg):
-    try: requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-    except: pass
+    if not TOKEN or not CHAT_ID:
+        print("⚠️ No se puede enviar mensaje: Faltan variables.")
+        return
+
+    print(f"Intentando enviar a Telegram: {msg[:20]}...")
+    try:
+        r = requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+        # Imprimimos la respuesta de Telegram en el log para ver si hay error
+        print(f"Respuesta Telegram: {r.status_code} - {r.text}")
+    except Exception as e:
+        print(f"❌ ERROR DE CONEXIÓN TELEGRAM: {e}")
 
 def sesion_activa():
     h = datetime.now(mx).hour
@@ -66,9 +83,7 @@ def obtener_velas(asset, resol):
         return [(float(v["open"]), float(v["high"]), float(v["low"]), float(v["close"]), float(v.get("volume", 1))) for v in data]
     except: return None
 
-# ================================
-# 📐 INDICADORES TÉCNICOS
-# ================================
+# ... (RESTO DE LOS INDICADORES IGUAL QUE ANTES) ...
 def calcular_ema(candles, period):
     if len(candles) < period: return None
     cierre = [c[3] for c in candles]
@@ -154,9 +169,7 @@ def vela_tiene_cuerpo(vela_data):
     if total_size == 0: return False
     return (body_size / total_size) > 0.30
 
-# ================================
-# 🧠 LÓGICA V20.2 (ADAPTATIVA: TURBO vs SEGURO)
-# ================================
+# ... (LÓGICA V20.2 ADAPTATIVA) ...
 def detectar_fase(v5, v1, v15):
     ema50_5m = calcular_ema(v5, 50)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
@@ -166,31 +179,20 @@ def detectar_fase(v5, v1, v15):
 
     if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None, False
 
-    # FILTRO MÍNIMO GENERAL (Si no hay fuerza, no operamos)
     if adx_val < 20: return "NADA", None, False
 
     c5_close = v5[-1][3]
     c15_close = v15[-1][3]
-    
-    # --- DETERMINAR MODO ---
-    # Si ADX > 30, estamos en MODO TURBO (Ignoramos 15m para entrar rápido)
-    # Si ADX < 30, estamos en MODO SEGURO (Exigimos 15m para no perder)
     modo_turbo = adx_val > 30
     
-    # --- ESTRATEGIA ---
-    
-    # 1. COMPRA (BUY)
     if c5_close > ema50_5m: 
-        # Si NO estamos en Turbo, exigimos que 15m también sea alcista
         if modo_turbo or (c15_close > ema50_15m): 
             if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
                 if verificar_espacio_sr(v5, "BUY", c5_close):
                     if vela_tiene_cuerpo(v1[-1]):
                          return "ENTRADA", "BUY", modo_turbo
 
-    # 2. VENTA (SELL)
     elif c5_close < ema50_5m:
-        # Si NO estamos en Turbo, exigimos que 15m también sea bajista
         if modo_turbo or (c15_close < ema50_15m): 
             if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
                 if verificar_espacio_sr(v5, "SELL", c5_close):
@@ -199,42 +201,31 @@ def detectar_fase(v5, v1, v15):
             
     return "NADA", None, False
 
-# ================================
-# 🚀 EJECUCIÓN
-# ================================
 def ejecutar_trade(asset, direction, price, es_turbo):
     global api
     if not risk.puede_operar(): return
-    
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
-    
-    tipo_entrada = "🔥 MODO TURBO (ADX>30)" if es_turbo else "🛡️ MODO SEGURO (5m+15m)"
-    
-    send(f"⚡ <b>SEÑAL RAPIDA ({tipo_entrada})</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION}</b>")
-    
+    tipo_entrada = "🔥 MODO TURBO" if es_turbo else "🛡️ MODO SEGURO"
+    send(f"⚡ <b>SEÑAL ({tipo_entrada})</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION}</b>")
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
-        
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
-        
         send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nTipo: {tipo_entrada}\nDirección: {direction}")
-        
     except Exception as e:
         error_msg = str(e)
-        if "RECHAZADO" in error_msg:
-             send(f"⚠️ <b>DERIV RECHAZÓ:</b> {error_msg}")
-        
+        if "RECHAZADO" in error_msg: send(f"⚠️ <b>DERIV RECHAZÓ:</b> {error_msg}")
         if "Connection" in error_msg or "Timeout" in error_msg:
             print(f"Reinicio silencioso: {e}")
             os._exit(1)
-        else:
-            send(f"❌ <b>ERROR:</b> {e}")
+        else: send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v20.2 Iniciado")
-    send(f"✅ <b>BOT v20.2 ADAPTATIVO ONLINE</b>\nInversión: ${MONTO_INVERSION}\nEstrategia: Turbo (>30 ADX) + Seguro (<30 ADX)")
+    print("Bot v20.3 DIAGNOSTICO Iniciado")
+    # Forzamos el mensaje de bienvenida y mostramos el resultado en el log
+    send(f"✅ <b>BOT v20.3 DIAGNÓSTICO</b>\nInversión: ${MONTO_INVERSION}\nSi lees esto, Telegram funciona.")
+    
     while True:
         try:
             if sesion_activa():
@@ -242,11 +233,8 @@ def analizar():
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
                     v15 = obtener_velas(asset, 15) 
-                    
                     if not v5 or not v1 or not v15: continue
-                    
                     fase, direction, es_turbo = detectar_fase(v5, v1, v15)
-                    
                     if fase == "ENTRADA":
                         ejecutar_trade(asset, direction, v1[-1][3], es_turbo)
                 time.sleep(60)
@@ -262,6 +250,5 @@ if __name__ == "__main__":
         threading.Thread(target=analizar, daemon=True).start()
         while True: time.sleep(10)
     except Exception as e:
-        print(f"Error fatal: {e}")
+        print(f"Error fatal inicio: {e}")
         os._exit(1)
-
