@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v20.3 (MODO DIAGNÓSTICO DE CONEXIÓN)
+# CRYPTOSNIPER FX — v20.4 (ANTI-BLOQUEO + AUTO-PAUSA)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -11,7 +11,7 @@ import pytz
 import math
 from datetime import datetime
 import os
-import sys # Agregado para forzar logs
+import sys
 
 from auto_copy import AutoCopy
 from stats import registrar_operacion
@@ -19,19 +19,12 @@ from risk_manager import RiskManager
 from deriv_api import DerivAPI 
 from firebase_cache import actualizar_estado, guardar_macro
 
-# --- VERIFICACIÓN DE LLAVES AL INICIO ---
-print("--- INICIANDO DIAGNÓSTICO DE LLAVES ---")
+# --- VERIFICACIÓN DE LLAVES ---
+print("--- SISTEMA v20.4 INICIADO ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
-
-if not TOKEN: print("❌ ERROR CRÍTICO: No se encontró TELEGRAM_TOKEN en las variables.")
-else: print(f"✅ TELEGRAM_TOKEN detectado: {TOKEN[:5]}...")
-
-if not CHAT_ID: print("❌ ERROR CRÍTICO: No se encontró TELEGRAM_CHAT_ID en las variables.")
-else: print(f"✅ TELEGRAM_CHAT_ID detectado: {CHAT_ID}")
-print("--- FIN DIAGNÓSTICO ---")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
@@ -46,19 +39,10 @@ DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
 risk = RiskManager(balance_inicial=41.64, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
-# --- FUNCIÓN SEND MEJORADA (SIN SILENCIADOR) ---
 def send(msg):
-    if not TOKEN or not CHAT_ID:
-        print("⚠️ No se puede enviar mensaje: Faltan variables.")
-        return
-
-    print(f"Intentando enviar a Telegram: {msg[:20]}...")
-    try:
-        r = requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-        # Imprimimos la respuesta de Telegram en el log para ver si hay error
-        print(f"Respuesta Telegram: {r.status_code} - {r.text}")
-    except Exception as e:
-        print(f"❌ ERROR DE CONEXIÓN TELEGRAM: {e}")
+    if not TOKEN or not CHAT_ID: return
+    try: requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+    except: pass
 
 def sesion_activa():
     h = datetime.now(mx).hour
@@ -83,7 +67,9 @@ def obtener_velas(asset, resol):
         return [(float(v["open"]), float(v["high"]), float(v["low"]), float(v["close"]), float(v.get("volume", 1))) for v in data]
     except: return None
 
-# ... (RESTO DE LOS INDICADORES IGUAL QUE ANTES) ...
+# ================================
+# 📐 INDICADORES TÉCNICOS
+# ================================
 def calcular_ema(candles, period):
     if len(candles) < period: return None
     cierre = [c[3] for c in candles]
@@ -169,7 +155,9 @@ def vela_tiene_cuerpo(vela_data):
     if total_size == 0: return False
     return (body_size / total_size) > 0.30
 
-# ... (LÓGICA V20.2 ADAPTATIVA) ...
+# ================================
+# 🧠 LÓGICA V20.4 (ADAPTATIVA)
+# ================================
 def detectar_fase(v5, v1, v15):
     ema50_5m = calcular_ema(v5, 50)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
@@ -207,24 +195,33 @@ def ejecutar_trade(asset, direction, price, es_turbo):
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
     tipo_entrada = "🔥 MODO TURBO" if es_turbo else "🛡️ MODO SEGURO"
+    
     send(f"⚡ <b>SEÑAL ({tipo_entrada})</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION}</b>")
+    
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         send(f"🔵 <b>ORDEN ACEPTADA: {contract_id}</b>\nTipo: {tipo_entrada}\nDirección: {direction}")
+    
     except Exception as e:
         error_msg = str(e)
+        # --- AQUÍ ESTÁ EL ESCUDO ANTI-BLOQUEO ---
+        if "rate limit" in error_msg.lower() or "limit" in error_msg.lower():
+            send("⏳ <b>PAUSA DE SEGURIDAD (15 MIN)</b>\nDeriv detectó muchas conexiones. Esperando para evitar bloqueo permanente...")
+            print("⚠️ Rate Limit detectado. Durmiendo 15 minutos...")
+            time.sleep(900) # Dormir 15 minutos (900 seg)
+            return
+
         if "RECHAZADO" in error_msg: send(f"⚠️ <b>DERIV RECHAZÓ:</b> {error_msg}")
-        if "Connection" in error_msg or "Timeout" in error_msg:
+        elif "Connection" in error_msg or "Timeout" in error_msg:
             print(f"Reinicio silencioso: {e}")
             os._exit(1)
         else: send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v20.3 DIAGNOSTICO Iniciado")
-    # Forzamos el mensaje de bienvenida y mostramos el resultado en el log
-    send(f"✅ <b>BOT v20.3 DIAGNÓSTICO</b>\nInversión: ${MONTO_INVERSION}\nSi lees esto, Telegram funciona.")
+    print("Bot v20.4 ANTI-BLOQUEO Iniciado")
+    send(f"✅ <b>BOT v20.4 ONLINE</b>\nInversión: ${MONTO_INVERSION}\nProtección Anti-Ban: ACTIVADA")
     
     while True:
         try:
