@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v20.4 (ANTI-BLOQUEO + AUTO-PAUSA)
+# CRYPTOSNIPER FX — v20.5 (ALARMA DE INICIO + ANTI-BAN)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -19,8 +19,10 @@ from risk_manager import RiskManager
 from deriv_api import DerivAPI 
 from firebase_cache import actualizar_estado, guardar_macro
 
-# --- VERIFICACIÓN DE LLAVES ---
-print("--- SISTEMA v20.4 INICIADO ---")
+# --- VARIABLES DE CONTROL ---
+notificado_inicio_dia = False  # Variable para controlar la alarma diaria
+
+print("--- SISTEMA v20.5 CON ALARMA INICIADO ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
@@ -46,6 +48,7 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
+    # Horario operativo: 2 AM a 12 PM (Mediodía)
     return (2 <= h <= 12) 
 
 def on_trade_result(result):
@@ -156,7 +159,7 @@ def vela_tiene_cuerpo(vela_data):
     return (body_size / total_size) > 0.30
 
 # ================================
-# 🧠 LÓGICA V20.4 (ADAPTATIVA)
+# 🧠 LÓGICA V20.5 (ADAPTATIVA)
 # ================================
 def detectar_fase(v5, v1, v15):
     ema50_5m = calcular_ema(v5, 50)
@@ -206,11 +209,9 @@ def ejecutar_trade(asset, direction, price, es_turbo):
     
     except Exception as e:
         error_msg = str(e)
-        # --- AQUÍ ESTÁ EL ESCUDO ANTI-BLOQUEO ---
         if "rate limit" in error_msg.lower() or "limit" in error_msg.lower():
-            send("⏳ <b>PAUSA DE SEGURIDAD (15 MIN)</b>\nDeriv detectó muchas conexiones. Esperando para evitar bloqueo permanente...")
-            print("⚠️ Rate Limit detectado. Durmiendo 15 minutos...")
-            time.sleep(900) # Dormir 15 minutos (900 seg)
+            send("⏳ <b>PAUSA DE SEGURIDAD (15 MIN)</b>\nDeriv detectó muchas conexiones. Esperando...")
+            time.sleep(900) 
             return
 
         if "RECHAZADO" in error_msg: send(f"⚠️ <b>DERIV RECHAZÓ:</b> {error_msg}")
@@ -220,12 +221,18 @@ def ejecutar_trade(asset, direction, price, es_turbo):
         else: send(f"❌ <b>ERROR:</b> {e}")
 
 def analizar():
-    print("Bot v20.4 ANTI-BLOQUEO Iniciado")
-    send(f"✅ <b>BOT v20.4 ONLINE</b>\nInversión: ${MONTO_INVERSION}\nProtección Anti-Ban: ACTIVADA")
+    global notificado_inicio_dia
+    print("Bot v20.5 ALARMA Iniciado")
+    send(f"✅ <b>BOT v20.5 CON ALARMA ONLINE</b>\nInversión: ${MONTO_INVERSION}\nEsperando a las 2:00 AM...")
     
     while True:
         try:
             if sesion_activa():
+                # --- AQUÍ ESTÁ TU ALARMA ---
+                if not notificado_inicio_dia:
+                    send("⏰ <b>¡DING DONG! Despertador</b>\nIniciando sesión Londres. Estoy buscando oportunidades...")
+                    notificado_inicio_dia = True
+
                 for asset in SYMBOLS:
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
@@ -236,6 +243,10 @@ def analizar():
                         ejecutar_trade(asset, direction, v1[-1][3], es_turbo)
                 time.sleep(60)
             else:
+                # Si se hace tarde, reseteamos la alarma para mañana
+                if notificado_inicio_dia:
+                    notificado_inicio_dia = False
+                    print("Reiniciando alarma para mañana.")
                 time.sleep(600)
         except Exception as e:
             print(f"Error loop: {e}")
