@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v20.5 (ALARMA DE INICIO + ANTI-BAN)
+# CRYPTOSNIPER FX — v20.6 (EDICIÓN BÚNKER: FILTRO ESTRICTO)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -20,9 +20,9 @@ from deriv_api import DerivAPI
 from firebase_cache import actualizar_estado, guardar_macro
 
 # --- VARIABLES DE CONTROL ---
-notificado_inicio_dia = False  # Variable para controlar la alarma diaria
+notificado_inicio_dia = False 
 
-print("--- SISTEMA v20.5 CON ALARMA INICIADO ---")
+print("--- SISTEMA v20.6 BÚNKER INICIADO ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
@@ -32,14 +32,16 @@ API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
 # ==========================================
-# 💰 DINERO
+# 💰 GESTIÓN DE DINERO
 # ==========================================
 MONTO_INVERSION = 2.0 
 
+# Configuración de Activos
 SYMBOLS = { "XAU/USD": "XAU/USD" }
 DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
-risk = RiskManager(balance_inicial=41.64, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
+# Límite de seguridad: Se detiene si pierde $6 en un día (3 operaciones)
+risk = RiskManager(balance_inicial=50.00, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
 def send(msg):
     if not TOKEN or not CHAT_ID: return
@@ -159,7 +161,7 @@ def vela_tiene_cuerpo(vela_data):
     return (body_size / total_size) > 0.30
 
 # ================================
-# 🧠 LÓGICA V20.5 (ADAPTATIVA)
+# 🧠 LÓGICA v20.6 (FILTRO BÚNKER)
 # ================================
 def detectar_fase(v5, v1, v15):
     ema50_5m = calcular_ema(v5, 50)
@@ -170,21 +172,27 @@ def detectar_fase(v5, v1, v15):
 
     if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None, False
 
-    if adx_val < 20: return "NADA", None, False
+    # --- FILTRO ANTIRUIDO REFORZADO ---
+    # Solo operamos si ADX > 25 (Tendencia muy clara)
+    if adx_val < 25: return "NADA", None, False
 
     c5_close = v5[-1][3]
     c15_close = v15[-1][3]
-    modo_turbo = adx_val > 30
+    modo_turbo = adx_val > 35  # Turbo solo si la tendencia es brutal (35+)
     
+    # ESTRATEGIA BUY
     if c5_close > ema50_5m: 
         if modo_turbo or (c15_close > ema50_15m): 
+            # Stoch < 80 evita comprar en techos
             if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
                 if verificar_espacio_sr(v5, "BUY", c5_close):
                     if vela_tiene_cuerpo(v1[-1]):
                          return "ENTRADA", "BUY", modo_turbo
 
+    # ESTRATEGIA SELL
     elif c5_close < ema50_5m:
         if modo_turbo or (c15_close < ema50_15m): 
+            # Stoch > 20 evita vender en pisos
             if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
                 if verificar_espacio_sr(v5, "SELL", c5_close):
                      if vela_tiene_cuerpo(v1[-1]):
@@ -194,12 +202,16 @@ def detectar_fase(v5, v1, v15):
 
 def ejecutar_trade(asset, direction, price, es_turbo):
     global api
-    if not risk.puede_operar(): return
+    # Chequeo estricto de riesgo
+    if not risk.puede_operar(): 
+        print("⛔ Risk Manager bloqueó la operación.")
+        return
+
     simbolo_deriv = DERIV_MAP[asset]
     DURACION_MINUTOS = 5 
-    tipo_entrada = "🔥 MODO TURBO" if es_turbo else "🛡️ MODO SEGURO"
+    tipo_entrada = "🔥 TURBO (Trend)" if es_turbo else "🛡️ SEGURO"
     
-    send(f"⚡ <b>SEÑAL ({tipo_entrada})</b>\nDir: {direction}\nInversión: <b>${MONTO_INVERSION}</b>")
+    send(f"⚡ <b>SEÑAL ({tipo_entrada})</b>\nDir: {direction}\nFiltro ADX: ACTIVO\nInversión: <b>${MONTO_INVERSION}</b>")
     
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
@@ -209,6 +221,7 @@ def ejecutar_trade(asset, direction, price, es_turbo):
     
     except Exception as e:
         error_msg = str(e)
+        # Manejo de Rate Limit (Pausa 15 min)
         if "rate limit" in error_msg.lower() or "limit" in error_msg.lower():
             send("⏳ <b>PAUSA DE SEGURIDAD (15 MIN)</b>\nDeriv detectó muchas conexiones. Esperando...")
             time.sleep(900) 
@@ -222,15 +235,15 @@ def ejecutar_trade(asset, direction, price, es_turbo):
 
 def analizar():
     global notificado_inicio_dia
-    print("Bot v20.5 ALARMA Iniciado")
-    send(f"✅ <b>BOT v20.5 CON ALARMA ONLINE</b>\nInversión: ${MONTO_INVERSION}\nEsperando a las 2:00 AM...")
+    print("Bot v20.6 BÚNKER Iniciado")
+    send(f"✅ <b>BOT v20.6 ONLINE (MODO BÚNKER)</b>\nInversión: ${MONTO_INVERSION}\nFiltro ADX: >25 (Estricto)")
     
     while True:
         try:
             if sesion_activa():
-                # --- AQUÍ ESTÁ TU ALARMA ---
+                # --- ALARMA MATUTINA ---
                 if not notificado_inicio_dia:
-                    send("⏰ <b>¡DING DONG! Despertador</b>\nIniciando sesión Londres. Estoy buscando oportunidades...")
+                    send("⏰ <b>¡DING DONG! Despertador</b>\nIniciando sesión. Modo Búnker activado: Solo entradas perfectas.")
                     notificado_inicio_dia = True
 
                 for asset in SYMBOLS:
@@ -238,15 +251,18 @@ def analizar():
                     v1 = obtener_velas(asset, 1)
                     v15 = obtener_velas(asset, 15) 
                     if not v5 or not v1 or not v15: continue
+                    
                     fase, direction, es_turbo = detectar_fase(v5, v1, v15)
+                    
                     if fase == "ENTRADA":
                         ejecutar_trade(asset, direction, v1[-1][3], es_turbo)
+                
+                # Pausa de 60 segundos entre análisis para no saturar
                 time.sleep(60)
             else:
-                # Si se hace tarde, reseteamos la alarma para mañana
                 if notificado_inicio_dia:
                     notificado_inicio_dia = False
-                    print("Reiniciando alarma para mañana.")
+                    print("Fin del día, reseteando alarma.")
                 time.sleep(600)
         except Exception as e:
             print(f"Error loop: {e}")
