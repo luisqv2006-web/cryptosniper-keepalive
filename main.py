@@ -26,7 +26,8 @@ print("--- SISTEMA v20.6 BÚNKER INICIADO ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
-TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
+# TWELVE_API_KEY ya no se usa, lo dejamos comentado
+# TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
@@ -40,7 +41,7 @@ MONTO_INVERSION = 2.0
 SYMBOLS = { "XAU/USD": "XAU/USD" }
 DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
-# Límite de seguridad: Se detiene si pierde $6 en un día (3 operaciones)
+# Límite de seguridad: Se detiene si pierde $6 en un día
 risk = RiskManager(balance_inicial=50.00, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
 def send(msg):
@@ -50,7 +51,7 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
-    # Horario operativo: 2 AM a 12 PM (Mediodía)
+    # Horario operativo: 2 AM a 12 PM (Mediodía) - Evita spreads altos de la tarde
     return (2 <= h <= 12) 
 
 def on_trade_result(result):
@@ -62,15 +63,32 @@ def on_trade_result(result):
         risk.registrar_perdida()
     registrar_operacion("AUTO", 1, result)
 
+# --- NUEVA FUNCIÓN: Obtiene velas DIRECTO de Deriv ---
 def obtener_velas(asset, resol):
-    url = f"https://api.twelvedata.com/time_series?symbol={SYMBOLS[asset]}&interval={resol}min&exchange=FOREX&outputsize=70&apikey={TWELVE_API_KEY}"
-    try:
-        r = requests.get(url, timeout=10).json()
-        if "values" not in r: return None
-        data = r["values"]
-        data.reverse()
-        return [(float(v["open"]), float(v["high"]), float(v["low"]), float(v["close"]), float(v.get("volume", 1))) for v in data]
-    except: return None
+    global api
+    simbolo_deriv = DERIV_MAP.get(asset)
+    
+    if not simbolo_deriv:
+        return None
+
+    # Pedimos velas a la API (devuelve lista de diccionarios)
+    velas_data = api.get_candles(simbolo_deriv, resol, count=70)
+    
+    if not velas_data:
+        return None
+        
+    # Convertimos al formato que usan tus indicadores: [(Open, High, Low, Close, Volume), ...]
+    lista_procesada = []
+    for v in velas_data:
+        lista_procesada.append((
+            float(v['open']),
+            float(v['high']),
+            float(v['low']),
+            float(v['close']),
+            0 # Volumen no relevante en ticks sintéticos/forex deriv
+        ))
+    
+    return lista_procesada
 
 # ================================
 # 📐 INDICADORES TÉCNICOS
@@ -161,9 +179,10 @@ def vela_tiene_cuerpo(vela_data):
     return (body_size / total_size) > 0.30
 
 # ================================
-# 🧠 LÓGICA v20.6 (FILTRO BÚNKER)
+# 🧠 LÓGICA v20.6 (CORREGIDA: ANTI-REPINTADO)
 # ================================
 def detectar_fase(v5, v1, v15):
+    # Calculamos indicadores
     ema50_5m = calcular_ema(v5, 50)
     upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
     adx_val = calcular_adx(v5, 14)
@@ -172,30 +191,31 @@ def detectar_fase(v5, v1, v15):
 
     if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: return "NADA", None, False
 
-    # --- FILTRO ANTIRUIDO REFORZADO ---
-    # Solo operamos si ADX > 25 (Tendencia muy clara)
+    # Filtro ADX
     if adx_val < 25: return "NADA", None, False
 
-    c5_close = v5[-1][3]
-    c15_close = v15[-1][3]
-    modo_turbo = adx_val > 35  # Turbo solo si la tendencia es brutal (35+)
+    # IMPORTANTE: Usamos [-2] que es la vela CERRADA ANTERIOR
+    # [-1] es la vela actual que se mueve, NO la usamos para decidir
+    c5_close = v5[-2][3]   
+    c15_close = v15[-2][3]
+    
+    modo_turbo = adx_val > 35 
     
     # ESTRATEGIA BUY
     if c5_close > ema50_5m: 
         if modo_turbo or (c15_close > ema50_15m): 
-            # Stoch < 80 evita comprar en techos
             if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
                 if verificar_espacio_sr(v5, "BUY", c5_close):
-                    if vela_tiene_cuerpo(v1[-1]):
+                    # Verificamos que la vela de entrada (1min) anterior tuvo cuerpo
+                    if vela_tiene_cuerpo(v1[-2]): 
                          return "ENTRADA", "BUY", modo_turbo
 
     # ESTRATEGIA SELL
     elif c5_close < ema50_5m:
         if modo_turbo or (c15_close < ema50_15m): 
-            # Stoch > 20 evita vender en pisos
             if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
                 if verificar_espacio_sr(v5, "SELL", c5_close):
-                     if vela_tiene_cuerpo(v1[-1]):
+                     if vela_tiene_cuerpo(v1[-2]):
                         return "ENTRADA", "SELL", modo_turbo
             
     return "NADA", None, False
@@ -221,7 +241,6 @@ def ejecutar_trade(asset, direction, price, es_turbo):
     
     except Exception as e:
         error_msg = str(e)
-        # Manejo de Rate Limit (Pausa 15 min)
         if "rate limit" in error_msg.lower() or "limit" in error_msg.lower():
             send("⏳ <b>PAUSA DE SEGURIDAD (15 MIN)</b>\nDeriv detectó muchas conexiones. Esperando...")
             time.sleep(900) 
@@ -236,29 +255,35 @@ def ejecutar_trade(asset, direction, price, es_turbo):
 def analizar():
     global notificado_inicio_dia
     print("Bot v20.6 BÚNKER Iniciado")
-    send(f"✅ <b>BOT v20.6 ONLINE (MODO BÚNKER)</b>\nInversión: ${MONTO_INVERSION}\nFiltro ADX: >25 (Estricto)")
+    send(f"✅ <b>BOT v20.6 ONLINE (REAL DATA)</b>\nInversión: ${MONTO_INVERSION}\nDatos: Directos de Deriv")
     
     while True:
         try:
             if sesion_activa():
-                # --- ALARMA MATUTINA ---
                 if not notificado_inicio_dia:
-                    send("⏰ <b>¡DING DONG! Despertador</b>\nIniciando sesión. Modo Búnker activado: Solo entradas perfectas.")
+                    send("⏰ <b>¡DING DONG! Despertador</b>\nIniciando sesión. Modo Búnker activado.")
                     notificado_inicio_dia = True
 
                 for asset in SYMBOLS:
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
                     v15 = obtener_velas(asset, 15) 
-                    if not v5 or not v1 or not v15: continue
+                    
+                    # Si falla al obtener velas, saltamos al siguiente ciclo
+                    if not v5 or not v1 or not v15: 
+                        print(f"Fallo al obtener velas de {asset}")
+                        continue
                     
                     fase, direction, es_turbo = detectar_fase(v5, v1, v15)
                     
                     if fase == "ENTRADA":
-                        ejecutar_trade(asset, direction, v1[-1][3], es_turbo)
+                        # Usamos el precio de cierre de la última vela cerrada para log
+                        ejecutar_trade(asset, direction, v1[-2][3], es_turbo)
                 
-                # Pausa de 60 segundos entre análisis para no saturar
-                time.sleep(60)
+                # Sincronización precisa: Espera al segundo 00 del siguiente minuto
+                segundos_restantes = 60 - datetime.now().second
+                time.sleep(segundos_restantes + 1)
+                
             else:
                 if notificado_inicio_dia:
                     notificado_inicio_dia = False
