@@ -22,7 +22,7 @@ from firebase_cache import actualizar_estado, guardar_macro
 # --- VARIABLES DE CONTROL ---
 notificado_inicio_dia = False 
 
-print("--- SISTEMA v20.6 BÚNKER INICIADO ---")
+print("--- SISTEMA v20.6 BÚNKER INICIADO ---\n(Esperando sincronización con Deriv...)")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
@@ -72,6 +72,7 @@ def obtener_velas(asset, resol):
         return None
 
     # Pedimos velas a la API (devuelve lista de diccionarios)
+    # count=70 para tener historial suficiente para EMA50
     velas_data = api.get_candles(simbolo_deriv, resol, count=70)
     
     if not velas_data:
@@ -255,7 +256,6 @@ def ejecutar_trade(asset, direction, price, es_turbo):
 def analizar():
     global notificado_inicio_dia
     print("Bot v20.6 BÚNKER Iniciado")
-    send(f"✅ <b>BOT v20.6 ONLINE (REAL DATA)</b>\nInversión: ${MONTO_INVERSION}\nDatos: Directos de Deriv")
     
     while True:
         try:
@@ -278,6 +278,7 @@ def analizar():
                     
                     if fase == "ENTRADA":
                         # Usamos el precio de cierre de la última vela cerrada para log
+                        # AQUÍ ESTÁ EL CAMBIO CLAVE: [-2] EN LUGAR DE [-1]
                         ejecutar_trade(asset, direction, v1[-2][3], es_turbo)
                 
                 # Sincronización precisa: Espera al segundo 00 del siguiente minuto
