@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v21.0 (MODO DIAGNÓSTICO + REACTIVACIÓN)
+# CRYPTOSNIPER FX — v22.0 (MODO NOTICIAS + REBOTE)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -19,10 +19,8 @@ from risk_manager import RiskManager
 from deriv_api import DerivAPI 
 from firebase_cache import actualizar_estado, guardar_macro
 
-# --- VARIABLES DE CONTROL ---
-notificado_inicio_dia = False 
-
-print("--- SISTEMA v21.0 DIAGNÓSTICO INICIADO ---")
+# --- CONFIGURACIÓN ---
+print("--- SISTEMA v22.0: FILTRO DE NOTICIAS ACTIVO ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
@@ -30,18 +28,41 @@ DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
-# ==========================================
-# 💰 GESTIÓN DE DINERO
-# ==========================================
+# DINERO Y ACTIVOS
 MONTO_INVERSION = 2.0 
-
-# Configuración de Activos
 SYMBOLS = { "XAU/USD": "XAU/USD" }
 DERIV_MAP = { "XAU/USD": "frxXAUUSD" }
 
-# Límite: Se detiene si pierde $6 en un día
+# Gestión de Riesgo
 risk = RiskManager(balance_inicial=50.00, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
 
+# ==========================================
+# 📰 FILTRO DE NOTICIAS (HORA MÉXICO)
+# ==========================================
+def es_hora_noticia():
+    ahora = datetime.now(mx)
+    hora_actual = ahora.strftime("%H:%M")
+    
+    # Lista de "Zonas de Muerte" para XAU/USD
+    # Formato: (Inicio, Fin)
+    zonas_prohibidas = [
+        ("06:25", "06:40"), # Noticias tempranas
+        ("07:20", "07:45"), # ⚠️ EL REY: NFP, CPI, PPI (Peligro Extremo)
+        ("07:55", "08:10"), # Apertura Wall Street (Volatilidad)
+        ("08:50", "09:15"), # ISM / Confianza Consumidor
+        ("11:50", "12:10"), # Eventual FED / FOMC
+        ("12:50", "13:10")  # Cierres o noticias tarde
+    ]
+
+    for inicio, fin in zonas_prohibidas:
+        if inicio <= hora_actual <= fin:
+            return True, f"{inicio}-{fin}"
+            
+    return False, None
+
+# ==========================================
+# FUNCIONES BÁSICAS
+# ==========================================
 def send(msg):
     if not TOKEN or not CHAT_ID: return
     try: requests.post(API, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
@@ -49,8 +70,8 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
-    # Ampliamos horario para probar: 1 AM a 3 PM (13:00)
-    return (1 <= h <= 15) 
+    # Operamos de 2 AM a 2 PM, pero el filtro de noticias bloqueará las horas malas dentro de esto
+    return (2 <= h <= 14) 
 
 def on_trade_result(result):
     if result == "WIN":
@@ -61,39 +82,23 @@ def on_trade_result(result):
         risk.registrar_perdida()
     registrar_operacion("AUTO", 1, result)
 
-# --- Obtiene velas DIRECTO de Deriv ---
 def obtener_velas(asset, resol):
     global api
     simbolo_deriv = DERIV_MAP.get(asset)
     if not simbolo_deriv: return None
-
-    # Intentamos obtener velas. Si falla, devolvemos None para detectarlo
     try:
         velas_data = api.get_candles(simbolo_deriv, resol, count=70)
         if not velas_data: return None
-            
-        lista_procesada = []
+        lista = []
         for v in velas_data:
-            lista_procesada.append((
-                float(v['open']), float(v['high']), float(v['low']), float(v['close']), 0
-            ))
-        return lista_procesada
-    except Exception as e:
-        print(f"Error descargando velas {asset}: {e}")
-        return None
+            lista.append((float(v['open']), float(v['high']), float(v['low']), float(v['close']), 0))
+        return lista
+    except: return None
 
-# ================================
-# 📐 INDICADORES TÉCNICOS
-# ================================
-def calcular_ema(candles, period):
-    if len(candles) < period: return None
-    cierre = [c[3] for c in candles]
-    k = 2 / (period + 1)
-    ema = sum(cierre[:period]) / period
-    for price in cierre[period:]: ema = (price * k) + (ema * (1 - k))
-    return ema
-
-def calcular_bollinger(candles, period=20, mult=2):
+# ==========================================
+# 📐 INDICADORES Y ESTRATEGIA
+# ==========================================
+def calcular_bollinger(candles, period=20, mult=2.5): # Desviación 2.5 para Oro
     if len(candles) < period: return None, None, None
     cierres = [c[3] for c in candles[-period:]]
     sma = sum(cierres) / period
@@ -101,177 +106,107 @@ def calcular_bollinger(candles, period=20, mult=2):
     std_dev = math.sqrt(variance)
     return sma + (mult * std_dev), sma, sma - (mult * std_dev)
 
-def calcular_adx(candles, period=14):
-    if len(candles) < period * 2: return None
-    try:
-        atr, dm_pos, dm_neg = [], [], []
-        for i in range(1, len(candles)):
-            h, l, c_prev = candles[i][1], candles[i][2], candles[i-1][3]
-            tr = max(h-l, abs(h-c_prev), abs(l-c_prev))
-            atr.append(tr)
-            up = h - candles[i-1][1]
-            down = candles[i-1][2] - l
-            dm_pos.append(up if up > down and up > 0 else 0)
-            dm_neg.append(down if down > up and down > 0 else 0)
-        smooth_atr = sum(atr[:period])/period
-        smooth_pos = sum(dm_pos[:period])/period
-        smooth_neg = sum(dm_neg[:period])/period
-        dx_list = []
-        for i in range(period, len(atr)):
-            smooth_atr = (smooth_atr * (period-1) + atr[i]) / period
-            smooth_pos = (smooth_pos * (period-1) + dm_pos[i]) / period
-            smooth_neg = (smooth_neg * (period-1) + dm_neg[i]) / period
-            di_pos = 100 * (smooth_pos / smooth_atr) if smooth_atr != 0 else 0
-            di_neg = 100 * (smooth_neg / smooth_atr) if smooth_atr != 0 else 0
-            dx = 100 * abs(di_pos - di_neg) / (di_pos + di_neg) if (di_pos + di_neg) != 0 else 0
-            dx_list.append(dx)
-        if len(dx_list) < period: return None
-        adx = sum(dx_list[:period]) / period
-        for i in range(period, len(dx_list)):
-            adx = (adx * (period-1) + dx_list[i]) / period
-        return adx
-    except: return None
+def calcular_rsi(candles, period=14):
+    if len(candles) < period + 1: return None
+    changes = [candles[i][3] - candles[i-1][3] for i in range(1, len(candles))]
+    gains = [max(0, c) for c in changes]
+    losses = [max(0, -c) for c in changes]
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(changes)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    if avg_loss == 0: return 100
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
 
-def calcular_stoch(candles, k_period=14, d_period=3):
-    if len(candles) < k_period + d_period: return None, None
-    closes = [c[3] for c in candles]
-    lows = [c[2] for c in candles]
-    highs = [c[1] for c in candles]
-    k_values = []
-    for i in range(k_period, len(candles)):
-        current_close = closes[i]
-        lowest_low = min(lows[i-k_period+1:i+1])
-        highest_high = max(highs[i-k_period+1:i+1])
-        if highest_high - lowest_low == 0: k = 100
-        else: k = ((current_close - lowest_low) / (highest_high - lowest_low)) * 100
-        k_values.append(k)
-    if len(k_values) < d_period: return None, None
-    current_k = k_values[-1]
-    current_d = sum(k_values[-d_period:]) / d_period
-    return current_k, current_d
-
-def verificar_espacio_sr(candles, direction, current_price):
-    lookback = 50 
-    recent_candles = candles[-lookback:-1]
-    if direction == "BUY":
-        resistance = max([c[1] for c in recent_candles])
-        avg_body = sum([abs(c[3]-c[0]) for c in recent_candles]) / lookback
-        if (resistance - current_price) < (avg_body * 0.5): return False
-    elif direction == "SELL":
-        support = min([c[2] for c in recent_candles])
-        avg_body = sum([abs(c[3]-c[0]) for c in recent_candles]) / lookback
-        if (current_price - support) < (avg_body * 0.5): return False
-    return True
-
-def vela_tiene_cuerpo(vela_data):
-    open_p, high_p, low_p, close_p = vela_data[0], vela_data[1], vela_data[2], vela_data[3]
-    total_size = high_p - low_p
-    body_size = abs(close_p - open_p)
-    if total_size == 0: return False
-    return (body_size / total_size) > 0.30
-
-# ================================
-# 🧠 LÓGICA CON DIAGNÓSTICO
-# ================================
-def detectar_fase(asset, v5, v1, v15):
-    # Calculamos indicadores
-    ema50_5m = calcular_ema(v5, 50)
-    upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20)
-    adx_val = calcular_adx(v5, 14)
-    stoch_k, stoch_d = calcular_stoch(v5, 14, 3)
-    ema50_15m = calcular_ema(v15, 50)
-
-    if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: 
-        print(f"⚠️ {asset}: Faltan datos para indicadores.")
-        return "NADA", None, False
-
-    # Log de diagnóstico (Visible en Render)
-    # Esto nos dirá si el bot está "viendo" el mercado o si está ciego
-    print(f"🔍 {asset} | ADX: {adx_val:.1f} | K: {stoch_k:.1f} | Precio: {v5[-1][3]}")
-
-    # HE BAJADO EL ADX DE 25 A 20 PARA REACTIVAR EL BOT
-    if adx_val < 20: 
-        return "NADA", None, False
-
-    c5_close = v5[-2][3]   
-    c15_close = v15[-2][3]
-    modo_turbo = adx_val > 30 
+def detectar_fase(asset, v5, v1):
+    upper, mid, lower = calcular_bollinger(v5, 20, 2.5) 
+    rsi = calcular_rsi(v5, 14)
     
-    # ESTRATEGIA BUY
-    if c5_close > ema50_5m: 
-        if modo_turbo or (c15_close > ema50_15m): 
-            if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
-                if verificar_espacio_sr(v5, "BUY", c5_close):
-                    if vela_tiene_cuerpo(v1[-2]): 
-                         return "ENTRADA", "BUY", modo_turbo
+    if not upper or not rsi: return "NADA", None, False
 
-    # ESTRATEGIA SELL
-    elif c5_close < ema50_5m:
-        if modo_turbo or (c15_close < ema50_15m): 
-            if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
-                if verificar_espacio_sr(v5, "SELL", c5_close):
-                     if vela_tiene_cuerpo(v1[-2]):
-                        return "ENTRADA", "SELL", modo_turbo
+    precio_cierre = v5[-2][3] # Vela cerrada anterior
+    
+    # Log visible en Render
+    print(f"📊 {asset} | RSI: {rsi:.1f} | Precio: {precio_cierre}")
+
+    # ESTRATEGIA DE REBOTE (Mean Reversion)
+    # VENTA: Toca techo Y RSI > 70
+    if precio_cierre >= upper and rsi > 70:
+        if v1[-2][3] < v1[-2][0]: # Vela 1m roja confirmando caída
+            return "ENTRADA", "SELL", True
+
+    # COMPRA: Toca piso Y RSI < 30
+    elif precio_cierre <= lower and rsi < 30:
+        if v1[-2][3] > v1[-2][0]: # Vela 1m verde confirmando subida
+            return "ENTRADA", "BUY", True
             
     return "NADA", None, False
 
 def ejecutar_trade(asset, direction, price, es_turbo):
     global api
     if not risk.puede_operar(): 
-        print("⛔ Risk Manager bloqueó la operación.")
+        print("⛔ Risk Manager bloqueó.")
         return
 
     simbolo_deriv = DERIV_MAP[asset]
-    DURACION_MINUTOS = 5 
-    tipo_entrada = "🔥 TURBO" if es_turbo else "🛡️ NORMAL"
-    
-    send(f"⚡ <b>SEÑAL DETECTADA ({tipo_entrada})</b>\nActivo: {asset}\nDir: {direction}\nADX > 20 Confirmado")
+    send(f"⚡ <b>SEÑAL DE REBOTE</b>\nActivo: {asset}\nDir: {direction}\nPrecio Extremo Detectado")
     
     try:
-        contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
+        api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=5)
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
-        send(f"🔵 <b>ORDEN EJECUTADA: {contract_id}</b>\n{direction} | ${MONTO_INVERSION}")
-    
+        send(f"🔵 <b>ORDEN ENVIADA</b> ({direction})")
     except Exception as e:
-        send(f"❌ <b>ERROR AL COMPRAR:</b> {e}")
+        send(f"❌ Error: {e}")
 
+# ==========================================
+# 🔄 BUCLE PRINCIPAL
+# ==========================================
 def analizar():
-    global notificado_inicio_dia
-    print("Iniciando Loop de Análisis...")
+    notificado_noticia = False
     
+    print("Iniciando vigilancia...")
     while True:
         try:
             if sesion_activa():
-                if not notificado_inicio_dia:
-                    send("🔧 <b>Modo Diagnóstico ACTIVADO</b>\nADX bajado a 20. Reportando estado en Logs.")
-                    notificado_inicio_dia = True
+                # 1. CHEQUEO DE NOTICIAS
+                hay_noticia, horario = es_hora_noticia()
+                
+                if hay_noticia:
+                    if not notificado_noticia:
+                        send(f"⚠️ <b>ALERTA DE NOTICIAS ({horario})</b>\nBot pausado por seguridad. Alta volatilidad esperada.")
+                        notificado_noticia = True
+                        print(f"PAUSA: Noticia detectada en rango {horario}")
+                    
+                    time.sleep(60) # Esperar 1 minuto y volver a checar
+                    continue # Saltar análisis
+                
+                # Si ya pasó la noticia, reseteamos la notificación
+                if not hay_noticia and notificado_noticia:
+                    send("✅ <b>Mercado estabilizado</b>\nReanudando operaciones.")
+                    notificado_noticia = False
 
+                # 2. ANÁLISIS TÉCNICO
                 for asset in SYMBOLS:
-                    # Intento de obtener datos
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
-                    v15 = obtener_velas(asset, 15) 
+                    if not v5 or not v1: continue
                     
-                    if not v5 or not v1 or not v15: 
-                        print(f"⚠️ ALERTA: {asset} devolvió datos vacíos (None). Revisa deriv_api.py")
-                        continue
-                    
-                    fase, direction, es_turbo = detectar_fase(asset, v5, v1, v15)
+                    fase, direction, es_turbo = detectar_fase(asset, v5, v1)
                     
                     if fase == "ENTRADA":
                         ejecutar_trade(asset, direction, v1[-2][3], es_turbo)
                 
+                # Sincronización
                 segundos_restantes = 60 - datetime.now().second
                 time.sleep(segundos_restantes + 1)
                 
             else:
-                if notificado_inicio_dia:
-                    notificado_inicio_dia = False
-                    print("Fuera de horario. Durmiendo...")
                 time.sleep(600)
         except Exception as e:
-            print(f"❌ Error fatal en loop: {e}")
+            print(f"Error: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
@@ -280,5 +215,5 @@ if __name__ == "__main__":
         threading.Thread(target=analizar, daemon=True).start()
         while True: time.sleep(10)
     except Exception as e:
-        print(f"Error fatal inicio: {e}")
+        print(f"Fatal: {e}")
         os._exit(1)
