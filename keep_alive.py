@@ -11,8 +11,13 @@ def home():
 
 def run():
     port = int(os.environ.get("PORT", 10000))
-    # Use gunicorn as production server
-    subprocess.run(['gunicorn', 'keep_alive:app', '-b', f'0.0.0.0:{port}'])
+    # Gunicorn como servidor WSGI de producción (sin warnings)
+    subprocess.run([
+        'gunicorn',
+        'keep_alive:app',          # módulo:objeto Flask
+        '-b', f'0.0.0.0:{port}',   # bind
+        '--log-level', 'warning'   # solo muestra avisos importantes (opcional)
+    ])
 
 def keep_alive():
     t = Thread(target=run)
