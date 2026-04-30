@@ -1,7 +1,3 @@
-# =============================================================
-# STATS — Optimizado para archivo pequeño
-# =============================================================
-
 import json
 import os
 from datetime import datetime
@@ -20,19 +16,11 @@ def _save(data):
 
 def registrar_operacion(direction, price, result):
     data = _load()
-
     data["operaciones"].append({
         "t": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "dir": direction,
         "price": price,
         "res": result
     })
-
-    # Evita archivo gigante:
-    data["operaciones"] = data["operaciones"][-300:]
-
+    data["operaciones"] = data["operaciones"][-500:]
     _save(data)
-
-def resumen_diario(send):
-    data = _load()
-    send(f"📊 Resumen: {len(data['operaciones'])} operaciones hoy.")
