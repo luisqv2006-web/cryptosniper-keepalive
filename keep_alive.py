@@ -1,6 +1,7 @@
 from flask import Flask
 from threading import Thread
 import os
+import subprocess
 
 app = Flask('')
 
@@ -10,7 +11,8 @@ def home():
 
 def run():
     port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    # Use gunicorn as production server
+    subprocess.run(['gunicorn', 'keep_alive:app', '-b', f'0.0.0.0:{port}'])
 
 def keep_alive():
     t = Thread(target=run)
