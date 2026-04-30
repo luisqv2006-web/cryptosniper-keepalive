@@ -1,5 +1,5 @@
 # =============================================================
-# CRYPTOSNIPER FX — v23.0 (EUR/USD EDITION)
+# CRYPTOSNIPER FX — v24.0 (EUR/USD - FILTRO DE NOTICIAS + MEJORAS)
 # =============================================================
 from keep_alive import keep_alive
 keep_alive()
@@ -9,38 +9,39 @@ import requests
 import threading
 import pytz
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import sys
 
-from auto_copy import AutoCopy
-from stats import registrar_operacion
 from risk_manager import RiskManager
 from deriv_api import DerivAPI 
 from firebase_cache import actualizar_estado, guardar_macro
+from news_filter import NewsFilter
 
-# --- VARIABLES DE CONTROL ---
-notificado_inicio_dia = False 
-
-print("--- SISTEMA v23.0 (EUR/USD) INICIADO ---")
+print("--- SISTEMA v24.0 (EUR/USD) INICIADO ---")
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DERIV_TOKEN = os.getenv("DERIV_TOKEN")
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 mx = pytz.timezone("America/Mexico_City")
 
-# ==========================================
-# 💰 GESTIÓN DE DINERO
-# ==========================================
-MONTO_INVERSION = 2.0 
+MONTO_INVERSION = 2.0
 
-# --- CAMBIO REALIZADO AQUÍ: AHORA OPERA EURO ---
 SYMBOLS = { "EUR/USD": "EUR/USD" }
 DERIV_MAP = { "EUR/USD": "frxEURUSD" }
 
-# Límite: Se detiene si pierde $6 en un día
-risk = RiskManager(balance_inicial=50.00, max_loss_day=6, max_trades_day=15, timezone="America/Mexico_City")
+# Gestión de riesgo: máximo 3 pérdidas diarias ($6), cooldown de 30 min tras 2 pérdidas seguidas
+risk = RiskManager(balance_inicial=50.00, max_losses_day=3, max_trades_day=15,
+                   timezone="America/Mexico_City", cooldown_minutos=30)
+
+# Inicializar filtro de noticias (si la API key está disponible)
+news_filter = None
+if FINNHUB_API_KEY:
+    news_filter = NewsFilter(FINNHUB_API_KEY)
+else:
+    print("⚠️ FINNHUB_API_KEY no configurada. Filtro de noticias desactivado.")
 
 def send(msg):
     if not TOKEN or not CHAT_ID: return
@@ -49,8 +50,8 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
-    # HORARIO EUROPA/AMERICA: 1 AM a 3 PM (Cubre Londres y NY)
-    return (1 <= h <= 15) 
+    # Horario de 1 AM a 3 PM CDMX (cubre Londres y NY)
+    return (1 <= h <= 15)
 
 def on_trade_result(result):
     if result == "WIN":
@@ -59,22 +60,22 @@ def on_trade_result(result):
     else:
         send("❌ <b>LOSS confirmado</b>")
         risk.registrar_perdida()
+    from stats import registrar_operacion
     registrar_operacion("AUTO", 1, result)
 
-# --- Obtiene velas DIRECTO de Deriv ---
 def obtener_velas(asset, resol):
     global api
     simbolo_deriv = DERIV_MAP.get(asset)
     if not simbolo_deriv: return None
-
     try:
-        velas_data = api.get_candles(simbolo_deriv, resol, count=70)
-        if not velas_data: return None
-            
+        velas_data = api.get_candles(simbolo_deriv, resol, count=100)
+        if not velas_data or not isinstance(velas_data, list):
+            return None
         lista_procesada = []
         for v in velas_data:
             lista_procesada.append((
-                float(v['open']), float(v['high']), float(v['low']), float(v['close']), 0
+                float(v['open']), float(v['high']),
+                float(v['low']), float(v['close']), 0
             ))
         return lista_procesada
     except Exception as e:
@@ -82,18 +83,18 @@ def obtener_velas(asset, resol):
         return None
 
 # ================================
-# 📐 INDICADORES TÉCNICOS
+# INDICADORES TÉCNICOS
 # ================================
 def calcular_ema(candles, period):
     if len(candles) < period: return None
     cierre = [c[3] for c in candles]
     k = 2 / (period + 1)
     ema = sum(cierre[:period]) / period
-    for price in cierre[period:]: ema = (price * k) + (ema * (1 - k))
+    for price in cierre[period:]:
+        ema = (price * k) + (ema * (1 - k))
     return ema
 
 def calcular_bollinger(candles, period=20, mult=2):
-    # NOTA: Para EUR/USD usamos mult=2 (estándar), ya no 2.5
     if len(candles) < period: return None, None, None
     cierres = [c[3] for c in candles[-period:]]
     sma = sum(cierres) / period
@@ -102,7 +103,7 @@ def calcular_bollinger(candles, period=20, mult=2):
     return sma + (mult * std_dev), sma, sma - (mult * std_dev)
 
 def calcular_adx(candles, period=14):
-    if len(candles) < period * 2: return None
+    if len(candles) < period*2: return None, None, None
     try:
         atr, dm_pos, dm_neg = [], [], []
         for i in range(1, len(candles)):
@@ -116,7 +117,7 @@ def calcular_adx(candles, period=14):
         smooth_atr = sum(atr[:period])/period
         smooth_pos = sum(dm_pos[:period])/period
         smooth_neg = sum(dm_neg[:period])/period
-        dx_list = []
+        dx_list, di_pos_list, di_neg_list = [], [], []
         for i in range(period, len(atr)):
             smooth_atr = (smooth_atr * (period-1) + atr[i]) / period
             smooth_pos = (smooth_pos * (period-1) + dm_pos[i]) / period
@@ -125,12 +126,14 @@ def calcular_adx(candles, period=14):
             di_neg = 100 * (smooth_neg / smooth_atr) if smooth_atr != 0 else 0
             dx = 100 * abs(di_pos - di_neg) / (di_pos + di_neg) if (di_pos + di_neg) != 0 else 0
             dx_list.append(dx)
-        if len(dx_list) < period: return None
-        adx = sum(dx_list[:period]) / period
+            di_pos_list.append(di_pos)
+            di_neg_list.append(di_neg)
+        if len(dx_list) < period: return None, None, None
+        adx = sum(dx_list[:period])/period
         for i in range(period, len(dx_list)):
             adx = (adx * (period-1) + dx_list[i]) / period
-        return adx
-    except: return None
+        return adx, di_pos_list[-1], di_neg_list[-1]
+    except: return None, None, None
 
 def calcular_stoch(candles, k_period=14, d_period=3):
     if len(candles) < k_period + d_period: return None, None
@@ -146,22 +149,30 @@ def calcular_stoch(candles, k_period=14, d_period=3):
         else: k = ((current_close - lowest_low) / (highest_high - lowest_low)) * 100
         k_values.append(k)
     if len(k_values) < d_period: return None, None
-    current_k = k_values[-1]
-    current_d = sum(k_values[-d_period:]) / d_period
-    return current_k, current_d
+    return k_values[-1], sum(k_values[-d_period:]) / d_period
 
-def verificar_espacio_sr(candles, direction, current_price):
-    lookback = 50 
-    recent_candles = candles[-lookback:-1]
+def calcular_atr(candles, period=14):
+    if len(candles) < period+1: return None
+    trs = []
+    for i in range(1, len(candles)):
+        h, l, c_prev = candles[i][1], candles[i][2], candles[i-1][3]
+        tr = max(h-l, abs(h-c_prev), abs(l-c_prev))
+        trs.append(tr)
+    atr = sum(trs[:period]) / period
+    for i in range(period, len(trs)):
+        atr = (atr * (period-1) + trs[i]) / period
+    return atr
+
+def verificar_soporte_resistencia(candles, direction, current_price):
+    recent = candles[-51:-1]  # excluye la última y penúltima
+    if not recent:
+        return True
     if direction == "BUY":
-        resistance = max([c[1] for c in recent_candles])
-        avg_body = sum([abs(c[3]-c[0]) for c in recent_candles]) / lookback
-        if (resistance - current_price) < (avg_body * 0.5): return False
-    elif direction == "SELL":
-        support = min([c[2] for c in recent_candles])
-        avg_body = sum([abs(c[3]-c[0]) for c in recent_candles]) / lookback
-        if (current_price - support) < (avg_body * 0.5): return False
-    return True
+        resistance = max([c[1] for c in recent])
+        return (resistance - current_price) > 0.0002  # al menos 2 pips
+    else:
+        support = min([c[2] for c in recent])
+        return (current_price - support) > 0.0002
 
 def vela_tiene_cuerpo(vela_data):
     open_p, high_p, low_p, close_p = vela_data[0], vela_data[1], vela_data[2], vela_data[3]
@@ -171,74 +182,90 @@ def vela_tiene_cuerpo(vela_data):
     return (body_size / total_size) > 0.30
 
 # ================================
-# 🧠 LÓGICA CON DIAGNÓSTICO
+# LÓGICA DE ENTRADA MEJORADA
 # ================================
-def detectar_fase(asset, v5, v1, v15):
+def detectar_fase(asset, v5, v1, v15, v60):
     ema50_5m = calcular_ema(v5, 50)
-    # Volvemos a Mult=2 para EURUSD (Es más estable que el Oro)
-    upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20, 2) 
-    adx_val = calcular_adx(v5, 14)
+    ema200_60m = calcular_ema(v60, 200) if v60 and len(v60) > 200 else None
+    upper_bb, mid_bb, lower_bb = calcular_bollinger(v5, 20, 2)
+    adx, di_plus, di_minus = calcular_adx(v5, 14)
     stoch_k, stoch_d = calcular_stoch(v5, 14, 3)
-    ema50_15m = calcular_ema(v15, 50)
+    atr = calcular_atr(v5, 14)
 
-    if not ema50_5m or not ema50_15m or not stoch_k or not adx_val: 
-        print(f"⚠️ {asset}: Faltan datos para indicadores.")
+    if not ema50_5m or not adx or not stoch_k or not atr:
         return "NADA", None, False
 
-    print(f"🔍 {asset} | ADX: {adx_val:.1f} | K: {stoch_k:.1f} | Precio: {v5[-1][3]}")
-
-    if adx_val < 20: 
+    # Filtro de volatilidad mínima
+    if atr < 0.0004:
         return "NADA", None, False
 
-    c5_close = v5[-2][3]   
-    c15_close = v15[-2][3]
-    modo_turbo = adx_val > 30 
-    
-    # ESTRATEGIA BUY
-    if c5_close > ema50_5m: 
-        if modo_turbo or (c15_close > ema50_15m): 
-            if c5_close > mid_bb and stoch_k < 80 and stoch_k > stoch_d:
-                if verificar_espacio_sr(v5, "BUY", c5_close):
-                    if vela_tiene_cuerpo(v1[-2]): 
-                         return "ENTRADA", "BUY", modo_turbo
+    # Tendencia de fondo (EMA200 en 1h)
+    tendencia_alcista = True
+    tendencia_bajista = True
+    if ema200_60m:
+        if v5[-2][3] < ema200_60m:
+            tendencia_alcista = False
+        elif v5[-2][3] > ema200_60m:
+            tendencia_bajista = False
 
-    # ESTRATEGIA SELL
-    elif c5_close < ema50_5m:
-        if modo_turbo or (c15_close < ema50_15m): 
-            if c5_close < mid_bb and stoch_k > 20 and stoch_k < stoch_d:
-                if verificar_espacio_sr(v5, "SELL", c5_close):
-                     if vela_tiene_cuerpo(v1[-2]):
-                        return "ENTRADA", "SELL", modo_turbo
-            
+    c5_close = v5[-2][3]
+    c15_close = v15[-2][3] if v15 else None
+    modo_turbo = adx > 30
+
+    # Condiciones de compra
+    if c5_close > ema50_5m and tendencia_alcista:
+        if not modo_turbo and c15_close is not None and c15_close <= calcular_ema(v15, 50):
+            return "NADA", None, False
+        if adx < 25 or di_plus <= di_minus:
+            return "NADA", None, False
+        if c5_close > mid_bb and stoch_k < 30 and stoch_k > stoch_d:
+            if verificar_soporte_resistencia(v5, "BUY", c5_close):
+                if vela_tiene_cuerpo(v1[-2]):
+                    return "ENTRADA", "BUY", modo_turbo
+
+    # Condiciones de venta
+    elif c5_close < ema50_5m and tendencia_bajista:
+        if not modo_turbo and c15_close is not None and c15_close >= calcular_ema(v15, 50):
+            return "NADA", None, False
+        if adx < 25 or di_plus >= di_minus:
+            return "NADA", None, False
+        if c5_close < mid_bb and stoch_k > 70 and stoch_k < stoch_d:
+            if verificar_soporte_resistencia(v5, "SELL", c5_close):
+                if vela_tiene_cuerpo(v1[-2]):
+                    return "ENTRADA", "SELL", modo_turbo
+
     return "NADA", None, False
 
 def ejecutar_trade(asset, direction, price, es_turbo):
     global api
-    if not risk.puede_operar(): 
+    if not risk.puede_operar():
         print("⛔ Risk Manager bloqueó la operación.")
         return
-
     simbolo_deriv = DERIV_MAP[asset]
-    DURACION_MINUTOS = 5 
+    DURACION_MINUTOS = 5
     tipo_entrada = "🔥 TURBO" if es_turbo else "🛡️ NORMAL"
-    
-    send(f"⚡ <b>SEÑAL EUR/USD ({tipo_entrada})</b>\nDir: {direction}\nADX > 20 Confirmado")
-    
+    send(f"⚡ <b>SEÑAL EUR/USD ({tipo_entrada})</b>\nDir: {direction}\nADX > 25 Confirmado")
     try:
         contract_id = api.buy(simbolo_deriv, direction, amount=MONTO_INVERSION, duration=DURACION_MINUTOS)
         risk.registrar_trade()
         guardar_macro({"activo": asset, "direccion": direction, "precio": price, "hora": str(datetime.now(mx))})
         send(f"🔵 <b>ORDEN EJECUTADA: {contract_id}</b>\n{direction} | ${MONTO_INVERSION}")
-    
     except Exception as e:
         send(f"❌ <b>ERROR AL COMPRAR:</b> {e}")
 
 def analizar():
     global notificado_inicio_dia
+    notificado_inicio_dia = False
     print("Iniciando Loop de Análisis (EUR/USD)...")
     
     while True:
         try:
+            # --- FILTRO DE NOTICIAS ---
+            if news_filter and not news_filter.is_safe_to_trade():
+                print("🔕 Bloqueado por evento de alto impacto. Esperando...")
+                time.sleep(60)
+                continue
+
             if sesion_activa():
                 if not notificado_inicio_dia:
                     send("🇪🇺🇺🇸 <b>Bot Activado: EUR/USD</b>\nHorario: 01:00 - 15:00 CDMX")
@@ -247,27 +274,28 @@ def analizar():
                 for asset in SYMBOLS:
                     v5 = obtener_velas(asset, 5)
                     v1 = obtener_velas(asset, 1)
-                    v15 = obtener_velas(asset, 15) 
+                    v15 = obtener_velas(asset, 15)
+                    v60 = obtener_velas(asset, 60)
                     
-                    if not v5 or not v1 or not v15: 
-                        print(f"⚠️ ALERTA: {asset} sin datos. Revisa deriv_api.py")
+                    if not v5 or not v1 or not v15:
+                        print(f"⚠️ {asset} sin datos.")
                         continue
                     
-                    fase, direction, es_turbo = detectar_fase(asset, v5, v1, v15)
-                    
+                    fase, direction, es_turbo = detectar_fase(asset, v5, v1, v15, v60)
                     if fase == "ENTRADA":
                         ejecutar_trade(asset, direction, v1[-2][3], es_turbo)
+                        time.sleep(5)  # evitar señales duplicadas en la misma vela
                 
-                segundos_restantes = 60 - datetime.now().second
-                time.sleep(segundos_restantes + 1)
-                
+                # Sincronización al minuto siguiente
+                seg = datetime.now().second
+                time.sleep(61 - seg)
             else:
                 if notificado_inicio_dia:
                     notificado_inicio_dia = False
                     print("Fuera de horario. Durmiendo...")
                 time.sleep(600)
         except Exception as e:
-            print(f"❌ Error fatal en loop: {e}")
+            print(f"❌ Error en loop: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
