@@ -50,8 +50,8 @@ def send(msg):
 
 def sesion_activa():
     h = datetime.now(mx).hour
-    # Horario de 1 AM a 3 PM CDMX (cubre Londres y NY)
-    return (1 <= h <= 15)
+    # Londres + NY: de 6 AM a 3 PM CDMX (11:00 - 20:00 UTC)
+    return (6 <= h <= 15)
 
 def on_trade_result(result):
     if result == "WIN":
@@ -268,7 +268,7 @@ def analizar():
 
             if sesion_activa():
                 if not notificado_inicio_dia:
-                    send("🇪🇺🇺🇸 <b>Bot Activado: EUR/USD</b>\nHorario: 01:00 - 15:00 CDMX")
+                    send("🇪🇺🇺🇸 <b>Bot Activado: EUR/USD</b>\nHorario: 06:00 - 15:00 CDMX")
                     notificado_inicio_dia = True
 
                 for asset in SYMBOLS:
