@@ -2,14 +2,16 @@ import pytz
 from datetime import datetime, timedelta
 
 class RiskManager:
-    def __init__(self, balance_inicial, max_losses_day, max_trades_day, timezone, cooldown_minutos=30):
+    def __init__(self, balance_inicial, max_losses_day, max_profit_day, max_trades_day, timezone, cooldown_minutos=30):
         self.balance_inicial = balance_inicial
         self.max_losses_day = max_losses_day
+        self.max_profit_day = max_profit_day  # NUEVO
         self.max_trades_day = max_trades_day
         self.tz = pytz.timezone(timezone)
         self.cooldown = timedelta(minutes=cooldown_minutos)
         self.perdidas_hoy = 0
-        self.wins_hoy = 0          # <-- NUEVO
+        self.wins_hoy = 0
+        self.ganancias_hoy = 0.0  # NUEVO
         self.trades_hoy = 0
         self.racha_perdidas = 0
         self.pausado_hasta = None
@@ -19,7 +21,8 @@ class RiskManager:
         today = datetime.now(self.tz).date()
         if today > self.fecha_ultimo_reset:
             self.perdidas_hoy = 0
-            self.wins_hoy = 0      # <-- RESET
+            self.wins_hoy = 0
+            self.ganancias_hoy = 0.0  # RESET
             self.trades_hoy = 0
             self.racha_perdidas = 0
             self.pausado_hasta = None
@@ -35,6 +38,8 @@ class RiskManager:
             self.racha_perdidas = 0
         if self.perdidas_hoy >= self.max_losses_day:
             return False
+        if self.ganancias_hoy >= self.max_profit_day:  # NUEVO
+            return False
         if self.trades_hoy >= self.max_trades_day:
             return False
         return True
@@ -49,6 +54,7 @@ class RiskManager:
             self.pausado_hasta = datetime.now(self.tz) + self.cooldown
 
     def registrar_win(self):
-        self.wins_hoy += 1         # <-- NUEVO
+        self.wins_hoy += 1
+        self.ganancias_hoy += 1.70  # NUEVO (neto por win)
         self.racha_perdidas = 0
         self.pausado_hasta = None
