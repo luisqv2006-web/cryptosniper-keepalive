@@ -6,15 +6,17 @@ import threading
 class DerivAPI:
     def __init__(self, token, on_trade_result_callback, endpoint="wss://ws.derivws.com/websockets/v3?app_id=1089"):
         self.token = token
-        self.on_trade_result = on_trade_result_callback
+        self.on_trade_result = on_trade_result_callback  # ahora espera (contract_id, result)
         self.url = endpoint
         self.ws = None
         self.is_authenticated = False
         self.processed_contracts = set()
         self.buy_event = threading.Event()
         self.candles_event = threading.Event()
+        self.balance_event = threading.Event()   # Nuevo
         self.last_buy_response = None
         self.last_candles_data = None
+        self.last_balance_data = None            # Nuevo
         self.last_error = None
         self.connect()
 
@@ -45,6 +47,7 @@ class DerivAPI:
             self.last_error = data['error']['message']
             self.buy_event.set()
             self.candles_event.set()
+            self.balance_event.set()
             return
         if 'msg_type' in data:
             if data['msg_type'] == 'authorize':
@@ -59,6 +62,14 @@ class DerivAPI:
             elif data['msg_type'] == 'candles':
                 self.last_candles_data = data['candles']
                 self.candles_event.set()
+            elif data['msg_type'] == 'get_self':
+                # Respuesta a get_self, contiene balance
+                balance = data.get("get_self", {}).get("balance")
+                if balance:
+                    self.last_balance_data = float(balance)
+                else:
+                    self.last_balance_data = None
+                self.balance_event.set()
             elif data['msg_type'] == 'proposal_open_contract':
                 contract = data['proposal_open_contract']
                 contract_id = contract['contract_id']
@@ -68,12 +79,14 @@ class DerivAPI:
                     profit = contract.get('profit', 0)
                     result = "WIN" if profit > 0 else "LOSS"
                     self.processed_contracts.add(contract_id)
-                    self.on_trade_result(result)
+                    # Llamar al callback con contract_id y resultado
+                    self.on_trade_result(contract_id, result)
 
     def _on_error(self, ws, error):
         self.last_error = str(error)
         self.buy_event.set()
         self.candles_event.set()
+        self.balance_event.set()
 
     def _on_close(self, ws, status, msg):
         self.is_authenticated = False
@@ -153,6 +166,23 @@ class DerivAPI:
         if self.last_buy_response:
             return self.last_buy_response['contract_id']
         raise Exception("Error desconocido.")
+
+    def get_balance(self):
+        """Obtiene el saldo real de la cuenta. Devuelve float o None."""
+        self._ensure_connected()
+        if not self.is_authenticated:
+            self.authenticate()
+            start = time.time()
+            while not self.is_authenticated and (time.time() - start) < 5:
+                time.sleep(0.2)
+            if not self.is_authenticated:
+                return None
+        self.balance_event.clear()
+        self.last_balance_data = None
+        self.ws.send(json.dumps({"get_self": 1}))
+        if self.balance_event.wait(timeout=5):
+            return self.last_balance_data
+        return None
 
     def subscribe_to_transaction(self, contract_id):
         self.ws.send(json.dumps({"proposal_open_contract": 1, "contract_id": contract_id, "subscribe": 1}))
