@@ -50,12 +50,14 @@ class NewsFilter:
         return merged
 
     def _get_all_blocked_intervals(self):
-        """Obtiene y fusiona todos los bloques de alto impacto USD del día."""
+        """Obtiene y fusiona todos los bloques de alto impacto USD/EUR del día."""
         events = self._get_economic_calendar()
         now = datetime.now(timezone.utc)
         intervals = []
+        # Países/regiones que afectan EUR/USD
+        relevant_countries = ["United States", "Euro Zone"]
         for ev in events:
-            if ev.get("country") != "United States":
+            if ev.get("country") not in relevant_countries:
                 continue
             if ev.get("impact") != "high":
                 continue
