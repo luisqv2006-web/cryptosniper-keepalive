@@ -9,6 +9,7 @@ class RiskManager:
         self.tz = pytz.timezone(timezone)
         self.cooldown = timedelta(minutes=cooldown_minutos)
         self.perdidas_hoy = 0
+        self.wins_hoy = 0          # <-- NUEVO
         self.trades_hoy = 0
         self.racha_perdidas = 0
         self.pausado_hasta = None
@@ -18,6 +19,7 @@ class RiskManager:
         today = datetime.now(self.tz).date()
         if today > self.fecha_ultimo_reset:
             self.perdidas_hoy = 0
+            self.wins_hoy = 0      # <-- RESET
             self.trades_hoy = 0
             self.racha_perdidas = 0
             self.pausado_hasta = None
@@ -47,5 +49,6 @@ class RiskManager:
             self.pausado_hasta = datetime.now(self.tz) + self.cooldown
 
     def registrar_win(self):
+        self.wins_hoy += 1         # <-- NUEVO
         self.racha_perdidas = 0
         self.pausado_hasta = None
